@@ -40,54 +40,98 @@ interface RowProps {
   timeText: string
   durationText: string
   ongoing: boolean
+  open: boolean
+  onOpen: () => void
+  onClose: () => void
   onDelete: () => void
 }
 
-// 左滑露出删除按钮；桌面端同样支持鼠标拖动。
-function SwipeRow({ name, timeText, durationText, ongoing, onDelete }: RowProps) {
-  const [offset, setOffset] = useState(0)
-  const offsetRef = useRef(0)
+// 左滑露出删除。
+// 拖动过程直接改 DOM 的 transform，不触发 React 渲染 —— 这是之前卡顿的根因。
+function SwipeRow({
+  name, timeText, durationText, ongoing, open, onOpen, onClose, onDelete,
+}: RowProps) {
+  const surfaceRef = useRef<HTMLDivElement | null>(null)
+  const offset = useRef(0)
   const startX = useRef(0)
   const startY = useRef(0)
-  const baseOffset = useRef(0)
+  const base = useRef(0)
   const axis = useRef<'none' | 'x' | 'y'>('none')
   const active = useRef(false)
+  const lastX = useRef(0)
+  const lastT = useRef(0)
+  const speed = useRef(0)
 
-  function applyOffset(value: number) {
-    offsetRef.current = value
-    setOffset(value)
+  function paint(value: number, animate: boolean) {
+    const element = surfaceRef.current
+    if (!element) return
+    offset.current = value
+    element.style.transition = animate ? '' : 'none'
+    element.style.transform = `translateX(${value}px)`
   }
+
+  // 由父级统一控制“同时只开一条”，其它行收到 open=false 时自动归位
+  useEffect(() => {
+    const target = open ? -REVEAL : 0
+    if (offset.current === target) return
+    paint(target, true)
+  }, [open])
 
   function handleDown(event: ReactPointerEvent<HTMLDivElement>) {
     active.current = true
     axis.current = 'none'
     startX.current = event.clientX
     startY.current = event.clientY
-    baseOffset.current = offsetRef.current
+    lastX.current = event.clientX
+    lastT.current = event.timeStamp
+    speed.current = 0
+    base.current = offset.current
   }
 
   function handleMove(event: ReactPointerEvent<HTMLDivElement>) {
     if (!active.current) return
     const dx = event.clientX - startX.current
     const dy = event.clientY - startY.current
+
     if (axis.current === 'none') {
-      if (Math.abs(dx) > 8 && Math.abs(dx) > Math.abs(dy)) {
+      // 先判定方向：横向才是左滑，纵向交还给页面滚动
+      if (Math.abs(dx) > 6 && Math.abs(dx) > Math.abs(dy)) {
         axis.current = 'x'
-        event.currentTarget.setPointerCapture(event.pointerId)
-      } else if (Math.abs(dy) > 8) {
+        event.currentTarget.setPointerCapture?.(event.pointerId)
+        surfaceRef.current?.classList.add('dragging')
+      } else if (Math.abs(dy) > 6) {
         axis.current = 'y'
       }
     }
     if (axis.current !== 'x') return
-    applyOffset(Math.min(0, Math.max(-REVEAL, baseOffset.current + dx)))
+
+    const elapsed = Math.max(1, event.timeStamp - lastT.current)
+    speed.current = (event.clientX - lastX.current) / elapsed
+    lastX.current = event.clientX
+    lastT.current = event.timeStamp
+
+    paint(Math.min(0, Math.max(-REVEAL, base.current + dx)), false)
   }
 
-  function handleUp() {
+  function finish() {
     if (!active.current) return
     active.current = false
-    if (axis.current === 'x') {
-      // 左滑一点点就停在露出删除按钮的位置，避免回弹
-      applyOffset(offsetRef.current <= -20 ? -REVEAL : 0)
+    surfaceRef.current?.classList.remove('dragging')
+
+    if (axis.current !== 'x') {
+      // 单击：收起已展开的行
+      onClose()
+      return
+    }
+
+    // 滑过一半或快速轻扫都算展开
+    const shouldOpen = offset.current <= -REVEAL / 2 || speed.current < -0.5
+    if (shouldOpen) {
+      paint(-REVEAL, true)
+      onOpen()
+    } else {
+      paint(0, true)
+      onClose()
     }
   }
 
@@ -97,14 +141,14 @@ function SwipeRow({ name, timeText, durationText, ongoing, onDelete }: RowProps)
         删除
       </button>
       <div
+        ref={surfaceRef}
         className="row-surface"
-        style={{ transform: `translateX(${offset}px)` }}
         onPointerDown={handleDown}
         onPointerMove={handleMove}
-        onPointerUp={handleUp}
-        onPointerCancel={handleUp}
+        onPointerUp={finish}
+        onPointerCancel={finish}
         onClick={() => {
-          if (offsetRef.current !== 0) applyOffset(0)
+          if (offset.current !== 0) onClose()
         }}
       >
         <span className="row-name">{name}</span>
@@ -127,6 +171,7 @@ export default function App() {
   const [actionError, setActionError] = useState('')
   const [interactionError, setInteractionError] = useState('')
   const [managing, setManaging] = useState(false)
+  const [openId, setOpenId] = useState<string | null>(null)
   const [newShortcut, setNewShortcut] = useState('')
   const [now, setNow] = useState(() => new Date())
   const lastTouchRef = useRef(0)
@@ -553,8 +598,12 @@ export default function App() {
                 timeText={beijingClockLabel(segment.record.started_at)}
                 durationText={durationLabel(segment.segment_start, segment.segment_end)}
                 ongoing={segment.record.ended_at === null}
+                open={openId === segment.record.id}
+                onOpen={() => setOpenId(segment.record.id)}
+                onClose={() => setOpenId(null)}
                 onDelete={() => {
                   if (window.confirm('确认删除这条记录？删除后不可恢复。')) {
+                    setOpenId(null)
                     removeRecord(segment.record.id)
                   }
                 }}

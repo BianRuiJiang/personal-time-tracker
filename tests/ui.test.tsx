@@ -174,6 +174,47 @@ describe('时间记录界面', () => {
     await waitFor(() => expect(apiMocks.fetchActivitiesByOverlap).toHaveBeenCalledTimes(2))
   })
 
+  it('左滑展开删除，且同时只保留一条展开', async () => {
+    render(<App />)
+    await screen.findAllByText('写作')
+    const surfaces = Array.from(document.querySelectorAll<HTMLElement>('.row-surface'))
+    expect(surfaces.length).toBeGreaterThan(1)
+
+    const [first, second] = surfaces
+    fireEvent.pointerDown(first, { pointerId: 1, clientX: 300, clientY: 100 })
+    fireEvent.pointerMove(first, { pointerId: 1, clientX: 200, clientY: 100 })
+
+    // 拖动期间只改样式，并带上 dragging 类（去掉过渡，避免与手势打架）
+    expect(first.classList.contains('dragging')).toBe(true)
+    expect(first.style.transform).toBe('translateX(-84px)')
+
+    fireEvent.pointerUp(first, { pointerId: 1, clientX: 200, clientY: 100 })
+    expect(first.classList.contains('dragging')).toBe(false)
+    expect(first.style.transform).toBe('translateX(-84px)')
+
+    // 展开第二条时，第一条自动收起
+    fireEvent.pointerDown(second, { pointerId: 2, clientX: 300, clientY: 100 })
+    fireEvent.pointerMove(second, { pointerId: 2, clientX: 190, clientY: 100 })
+    fireEvent.pointerUp(second, { pointerId: 2, clientX: 190, clientY: 100 })
+
+    await waitFor(() => expect(first.style.transform).toBe('translateX(0px)'))
+    expect(second.style.transform).toBe('translateX(-84px)')
+  })
+
+  it('纵向滑动不触发左滑展开', async () => {
+    render(<App />)
+    await screen.findAllByText('写作')
+    const first = document.querySelector<HTMLElement>('.row-surface')!
+
+    fireEvent.pointerDown(first, { pointerId: 1, clientX: 300, clientY: 100 })
+    fireEvent.pointerMove(first, { pointerId: 1, clientX: 296, clientY: 160 })
+    fireEvent.pointerUp(first, { pointerId: 1, clientX: 296, clientY: 160 })
+
+    // 纵向手势不碰 transform
+    expect(first.style.transform).toBe('')
+    expect(first.classList.contains('dragging')).toBe(false)
+  })
+
   it('云端写入失败时回滚本地记录并提示错误', async () => {
     apiMocks.switchActivity.mockRejectedValue(new Error('网络中断'))
     const user = userEvent.setup()
