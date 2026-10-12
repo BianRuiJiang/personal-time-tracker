@@ -156,6 +156,7 @@ h1, h2, h3, p, ol, li { margin: 0; padding: 0; }
   overflow-y: auto;
   overscroll-behavior: contain;
   padding: 0 20px 16px;
+  scroll-behavior: smooth;
 }
 
 .display::-webkit-scrollbar { width: 6px; }
@@ -177,7 +178,9 @@ h1, h2, h3, p, ol, li { margin: 0; padding: 0; }
   position: relative;
   overflow: hidden;
   border-radius: 8px;
-  background: var(--danger);
+  /* 底色必须是卡片色：红色只由 .row-delete 自己提供，
+     否则圆角抗锯齿和亚像素处会透出红边（快速滑动时尤其明显） */
+  background: var(--surface);
 }
 
 .row-delete {
@@ -186,6 +189,7 @@ h1, h2, h3, p, ol, li { margin: 0; padding: 0; }
   right: 0;
   bottom: 0;
   width: 84px;
+  border-radius: 0 8px 8px 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -247,8 +251,8 @@ h1, h2, h3, p, ol, li { margin: 0; padding: 0; }
 /* 时间独立成层：绝对定位贴住卡片底线，不参与名称的居中计算 */
 .row-meta {
   position: absolute;
-  right: 22px;
-  bottom: 3px;
+  right: 10px;
+  bottom: 5px;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -301,9 +305,8 @@ h1, h2, h3, p, ol, li { margin: 0; padding: 0; }
   position: relative;
   z-index: 2;
   padding: 16px 20px calc(env(safe-area-inset-bottom) + 16px);
-  background: rgba(255, 255, 255, .9);
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  /* 纯白不透明：不做毛玻璃，避免背景内容透上来发糊 */
+  background: var(--surface);
   border-top: 1px solid var(--hairline);
   border-radius: 16px 16px 0 0;
   box-shadow: 0 -1px 24px rgba(48, 54, 48, .05);

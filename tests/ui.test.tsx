@@ -174,6 +174,57 @@ describe('时间记录界面', () => {
     await waitFor(() => expect(apiMocks.fetchActivitiesByOverlap).toHaveBeenCalledTimes(2))
   })
 
+  it('斜向快速滑动不会被误判为左滑，避免闪出红色', async () => {
+    render(<App />)
+    await screen.findAllByText('写作')
+    const first = document.querySelector<HTMLElement>('.row-surface')!
+
+    // dx=-20 dy=+40：纵向占优，必须交还给页面滚动
+    fireEvent.pointerDown(first, { pointerId: 1, clientX: 300, clientY: 100 })
+    fireEvent.pointerMove(first, { pointerId: 1, clientX: 280, clientY: 140 })
+    fireEvent.pointerUp(first, { pointerId: 1, clientX: 280, clientY: 140 })
+
+    expect(first.style.transform).toBe('')
+    expect(first.classList.contains('dragging')).toBe(false)
+  })
+
+  it('手势被系统打断时只回弹，不展开删除', async () => {
+    render(<App />)
+    await screen.findAllByText('写作')
+    const first = document.querySelector<HTMLElement>('.row-surface')!
+
+    fireEvent.pointerDown(first, { pointerId: 1, clientX: 300, clientY: 100 })
+    fireEvent.pointerMove(first, { pointerId: 1, clientX: 200, clientY: 100 })
+    expect(first.style.transform).toBe('translateX(-84px)')
+
+    fireEvent.pointerCancel(first, { pointerId: 1, clientX: 200, clientY: 100 })
+    expect(first.style.transform).toBe('translateX(0px)')
+    expect(first.classList.contains('dragging')).toBe(false)
+  })
+
+  it('记录后自动把列表滚到底部，让新记录可见', async () => {
+    const scrollTo = vi.fn()
+    Object.defineProperty(Element.prototype, 'scrollTo', {
+      value: scrollTo, writable: true, configurable: true,
+    })
+    try {
+      const user = userEvent.setup()
+      render(<App />)
+      await screen.findAllByText('写作')
+      scrollTo.mockClear()
+
+      await user.type(screen.getByLabelText('活动名称'), '写周报')
+      await user.click(screen.getByRole('button', { name: '记录' }))
+
+      await waitFor(() => expect(scrollTo).toHaveBeenCalled())
+      const [options] = scrollTo.mock.calls[scrollTo.mock.calls.length - 1]
+      expect(options.behavior).toBe('smooth')
+      expect(typeof options.top).toBe('number')
+    } finally {
+      delete (Element.prototype as unknown as Record<string, unknown>).scrollTo
+    }
+  })
+
   it('左滑展开删除，且同时只保留一条展开', async () => {
     render(<App />)
     await screen.findAllByText('写作')

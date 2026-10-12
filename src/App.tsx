@@ -94,12 +94,15 @@ function SwipeRow({
     const dy = event.clientY - startY.current
 
     if (axis.current === 'none') {
-      // 先判定方向：横向才是左滑，纵向交还给页面滚动
-      if (Math.abs(dx) > 6 && Math.abs(dx) > Math.abs(dy)) {
+      // 横向位移要够大、且明显压过纵向，才认定是左滑；
+      // 否则快速纵向滚动会被误判成左滑，闪出红色删除层
+      const absX = Math.abs(dx)
+      const absY = Math.abs(dy)
+      if (absX > 10 && absX > absY * 1.2) {
         axis.current = 'x'
         event.currentTarget.setPointerCapture?.(event.pointerId)
         surfaceRef.current?.classList.add('dragging')
-      } else if (Math.abs(dy) > 6) {
+      } else if (absY > 8) {
         axis.current = 'y'
       }
     }
@@ -111,6 +114,18 @@ function SwipeRow({
     lastT.current = event.timeStamp
 
     paint(Math.min(0, Math.max(-REVEAL, base.current + dx)), false)
+  }
+
+  // 手势被浏览器接管（通常是转为纵向滚动）时，只回弹，不展开
+  function cancel() {
+    if (!active.current) return
+    active.current = false
+    surfaceRef.current?.classList.remove('dragging')
+    if (axis.current === 'x') {
+      paint(0, true)
+      onClose()
+    }
+    axis.current = 'none'
   }
 
   function finish() {
@@ -146,7 +161,7 @@ function SwipeRow({
         onPointerDown={handleDown}
         onPointerMove={handleMove}
         onPointerUp={finish}
-        onPointerCancel={finish}
+        onPointerCancel={cancel}
         onClick={() => {
           if (offset.current !== 0) onClose()
         }}
@@ -175,6 +190,9 @@ export default function App() {
   const [newShortcut, setNewShortcut] = useState('')
   const [now, setNow] = useState(() => new Date())
   const lastTouchRef = useRef(0)
+  const displayRef = useRef<HTMLElement | null>(null)
+  // 新增记录后需要把列表滚到底，让刚记的那条可见
+  const scrollPending = useRef(false)
   // 同步写锁：state 更新是异步的，用 ref 才能真正挡住同帧内的重复提交
   const writeLock = useRef(false)
   const [draggingId, setDraggingId] = useState<string | null>(null)
@@ -318,6 +336,20 @@ export default function App() {
     [records, statDay, now],
   )
 
+  // 记录成功后把列表滚到底部，保证刚新增的那条在可视范围内
+  useEffect(() => {
+    if (!scrollPending.current) return
+    scrollPending.current = false
+    const element = displayRef.current
+    if (!element) return
+    const smooth = !(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false)
+    if (smooth && typeof element.scrollTo === 'function') {
+      element.scrollTo({ top: element.scrollHeight, behavior: 'smooth' })
+    } else {
+      element.scrollTop = element.scrollHeight
+    }
+  }, [todaySegments])
+
   // 写入策略：先在本地渲染，再同步云端。成功后用服务器数据替换本地临时数据；
   // 失败则回滚到服务器状态并提示，不做离线队列。
   function syncRecords(applyLocal: () => void, action: () => Promise<unknown>, onFail?: () => void) {
@@ -371,6 +403,7 @@ export default function App() {
 
   function localSwitch(name: string, source: 'manual' | 'shortcut') {
     const optimistic = optimisticRecord(name, source)
+    scrollPending.current = true
     setRecords((rows) => [
       ...rows.map((row) => (row.ended_at === null ? { ...row, ended_at: optimistic.started_at } : row)),
       optimistic,
@@ -586,7 +619,7 @@ export default function App() {
         <span className="history-day">{statDay}</span>
       </div>
 
-      <main className="display" aria-label="今日记录列表">
+      <main className="display" ref={displayRef} aria-label="今日记录列表">
         {todaySegments.length === 0 ? (
           <p className="empty">还没有记录，从下面开始。</p>
         ) : (
