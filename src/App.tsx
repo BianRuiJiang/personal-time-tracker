@@ -443,8 +443,7 @@ export default function App() {
 
   function removeRecord(id: string) {
     const previous = records
-    // 删除后同样滚到底部，让最新的记录始终可见
-    scrollPending.current = true
+    // 删除不改变列表末尾，不触发自动滚动
     syncRecords(
       () => setRecords((rows) => rows.filter((row) => row.id !== id)),
       () => deleteActivity(id),

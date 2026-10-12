@@ -174,7 +174,7 @@ describe('时间记录界面', () => {
     await waitFor(() => expect(apiMocks.fetchActivitiesByOverlap).toHaveBeenCalledTimes(2))
   })
 
-  it('删除记录后也会自动滚到底部', async () => {
+  it('删除记录不会触发自动滚动', async () => {
     const scrollTo = vi.fn()
     Object.defineProperty(Element.prototype, 'scrollTo', {
       value: scrollTo, writable: true, configurable: true,
@@ -187,8 +187,9 @@ describe('时间记录界面', () => {
       scrollTo.mockClear()
 
       await user.click(screen.getAllByRole('button', { name: '删除' })[0])
+      await waitFor(() => expect(apiMocks.deleteActivity).toHaveBeenCalledWith('old-id'))
 
-      await waitFor(() => expect(scrollTo).toHaveBeenCalled())
+      expect(scrollTo).not.toHaveBeenCalled()
     } finally {
       delete (Element.prototype as unknown as Record<string, unknown>).scrollTo
     }
