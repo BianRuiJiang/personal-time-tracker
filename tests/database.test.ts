@@ -170,6 +170,28 @@ describe('数据库核心规则', () => {
     expect(new Date(sleeps[0].ended_at).toISOString()).toBe('2026-10-11T23:00:00.000Z')
   })
 
+  it('睡眠记录进行中，用户仍可切换到普通活动', async () => {
+    await become(null, 'postgres')
+    await db.exec(`delete from public.activities where user_id = '${user1}'`)
+    await db.exec(`
+      insert into public.activities (user_id, name, started_at, source)
+      values ('${user1}', '睡觉', '2026-10-11T15:00:00Z', 'auto_sleep');
+    `)
+
+    await become(user1)
+    const switched = await query<{ name: string; source: string }>(
+      "select name, source from public.switch_activity('深夜工作', 'manual')",
+    )
+    expect(switched).toEqual([{ name: '深夜工作', source: 'manual' }])
+
+    await become(null, 'postgres')
+    const sleep = await query<{ ended_at: string | null }>(
+      `select ended_at from public.activities where user_id = $1 and source = 'auto_sleep'`, [user1],
+    )
+    expect(sleep).toHaveLength(1)
+    expect(sleep[0].ended_at).not.toBeNull()
+  })
+
   it('用户只能看到和删除自己的数据', async () => {
     await become(user2)
     const visible = await query<{ user_id: string }>('select user_id from public.activities')

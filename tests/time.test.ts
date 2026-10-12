@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { dayRange, durationText, shiftDate, splitForStatDay, statisticalDay } from '../src/lib/time'
+import { dayRange, durationLabel, durationText, shiftDate, splitForStatDay, statisticalDay } from '../src/lib/time'
 import { buildCsv, buildJson } from '../src/lib/export'
 import type { Activity } from '../src/types'
 
@@ -46,6 +46,12 @@ describe('北京时间统计日', () => {
 
   it('耗时输出为时分秒', () => {
     expect(durationText('2026-10-12T00:00:00Z', '2026-10-12T01:02:03Z')).toBe('01:02:03')
+  })
+
+  it('界面时长统一为 xxhxxmin，不足 1 分钟按 1 分钟，不足 1 小时无前导 0', () => {
+    expect(durationLabel('2026-10-12T00:00:00Z', '2026-10-12T01:20:00Z')).toBe('1h20min')
+    expect(durationLabel('2026-10-12T00:00:00Z', '2026-10-12T00:15:00Z')).toBe('15min')
+    expect(durationLabel('2026-10-12T00:00:00Z', '2026-10-12T00:00:30Z')).toBe('1min')
   })
 })
 

@@ -63,6 +63,19 @@ export function durationText(start: string | Date, end: string | Date | null) {
   return [hours, minutes, seconds].map((part) => String(part).padStart(2, '0')).join(':')
 }
 
+export function beijingClockLabel(value: string | Date) {
+  const [hour, minute] = beijingMinute(value).split(':')
+  return `${hour}时${minute}分`
+}
+
+// 时长统一为 xxhxxmin，不足 1 分钟按 1 分钟计；不足 1 小时不显示前导 0
+export function durationLabel(start: string | Date, end: string | Date | null) {
+  const totalMinutes = Math.max(1, Math.floor(durationSeconds(start, end) / 60))
+  const hours = Math.floor(totalMinutes / 60)
+  const minutes = totalMinutes % 60
+  return hours > 0 ? `${hours}h${minutes}min` : `${minutes}min`
+}
+
 export function durationSeconds(start: string | Date, end: string | Date | null) {
   return Math.max(0, Math.floor(
     ((end ? new Date(end).getTime() : Date.now()) - new Date(start).getTime()) / 1000,

@@ -8,3 +8,10 @@ tsconfig.tsbuildinfo
 *.log
 .supabase
 supabase/.temp
+
+# 本地界面预览工具（仅开发时使用，不进仓库）
+preview/
+preview-dist/
+work/
+outputs/
+vite.preview.config.ts

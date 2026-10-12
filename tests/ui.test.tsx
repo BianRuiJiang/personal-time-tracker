@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import App from '../src/App'
 import type { Activity, Shortcut } from '../src/types'
@@ -19,6 +19,7 @@ const apiMocks = vi.hoisted(() => ({
   fetchActivitiesByOverlap: vi.fn(),
   fetchAllActivities: vi.fn(),
   deleteActivity: vi.fn(),
+  deleteAllActivities: vi.fn(),
 }))
 
 const supabaseMocks = vi.hoisted(() => {
@@ -39,6 +40,7 @@ const supabaseMocks = vi.hoisted(() => {
 vi.mock('../src/lib/api', () => apiMocks)
 vi.mock('../src/lib/supabase', () => ({
   supabase: { ...supabaseMocks, auth: supabaseMocks },
+  configError: null,
   redirectUrl: () => 'https://example.github.io/personal-time-tracker/',
 }))
 
@@ -75,6 +77,8 @@ function shortcut(partial: Partial<Shortcut>): Shortcut {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  Object.defineProperty(URL, 'createObjectURL', { value: vi.fn(() => 'blob:mock'), writable: true })
+  Object.defineProperty(URL, 'revokeObjectURL', { value: vi.fn(), writable: true })
   supabaseMocks.getSession.mockResolvedValue({ data: { session } })
   apiMocks.fetchShortcuts.mockResolvedValue([
     shortcut({ id: 'default-id', name: '学习', is_default: true }),
@@ -86,14 +90,29 @@ beforeEach(() => {
   ])
   apiMocks.switchActivity.mockResolvedValue(activity({ id: 'new-id', name: '阅读', source: 'shortcut' }))
   apiMocks.deleteActivity.mockResolvedValue(undefined)
+  apiMocks.deleteAllActivities.mockResolvedValue(undefined)
+  apiMocks.reorderShortcuts.mockResolvedValue(undefined)
+  apiMocks.renameShortcut.mockResolvedValue(undefined)
+  apiMocks.deleteShortcut.mockResolvedValue(undefined)
+  apiMocks.addShortcut.mockResolvedValue(undefined)
 })
 
 describe('时间记录界面', () => {
-  it('显示服务器确认的当前活动和已持续状态', async () => {
+  it('只显示服务器确认的当前活动，不再显示秒或持续时长', async () => {
     render(<App />)
     expect((await screen.findAllByText('写作')).length).toBeGreaterThan(0)
-    expect(screen.getByText(/已持续/)).toBeInTheDocument()
+    expect(screen.queryByText(/已持续/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/正在进行/)).not.toBeInTheDocument()
     expect(apiMocks.fetchActivitiesByOverlap).toHaveBeenCalled()
+  })
+
+  it('每条记录同时显示开始时刻与总时长，精确到分且不出现秒与区间', async () => {
+    render(<App />)
+    await screen.findAllByText('写作')
+    expect(screen.queryByText(/\d{2}:\d{2}:\d{2}/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/～/)).not.toBeInTheDocument()
+    expect(screen.getAllByText(/^\d{2}时\d{2}分$/).length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/^(\d+h\d+min|\d+min)$/).length).toBeGreaterThan(0)
   })
 
   it('默认按钮只填入输入框，自定义按钮立即切换', async () => {
@@ -118,23 +137,178 @@ describe('时间记录界面', () => {
     expect(apiMocks.fetchActivitiesByOverlap).toHaveBeenCalledTimes(2)
   })
 
-  it('导出调用使用服务器查询到的原始记录', async () => {
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
+  it('睡眠记录进行中时，记录与快捷按钮仍然可用', async () => {
+    apiMocks.fetchActivitiesByOverlap.mockResolvedValue([
+      activity({ id: 'sleep-id', name: '睡觉', ended_at: null, source: 'auto_sleep' }),
+    ])
     const user = userEvent.setup()
-    apiMocks.fetchAllActivities.mockResolvedValue([activity({ id: 'all-id' })])
+    render(<App />)
+    await screen.findAllByText('睡觉')
+
+    expect(screen.getByRole('button', { name: '记录' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: '学习' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: '阅读' })).toBeEnabled()
+
+    await user.click(screen.getByRole('button', { name: '阅读' }))
+    await waitFor(() => expect(apiMocks.switchActivity).toHaveBeenCalledWith('阅读', 'shortcut'))
+  })
+
+  it('点记录时不再弹遮罩，新记录先本地可见，再同步到云端', async () => {
+    let release: () => void = () => undefined
+    apiMocks.switchActivity.mockImplementation(() => new Promise((resolve) => {
+      release = () => resolve(activity({ id: 'server-id', name: '写周报' }))
+    }))
+    const user = userEvent.setup()
     render(<App />)
     await screen.findAllByText('写作')
-    await user.click(screen.getByRole('button', { name: '导出全部 JSON' }))
-    await waitFor(() => expect(apiMocks.fetchAllActivities).toHaveBeenCalled())
-    expect(confirm).toHaveBeenCalled()
+
+    await user.type(screen.getByLabelText('活动名称'), '写周报')
+    await user.click(screen.getByRole('button', { name: '记录' }))
+
+    // 云端还没返回，本地已经能看到，且没有遮罩
+    expect(screen.getAllByText('写周报').length).toBeGreaterThan(0)
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    expect(apiMocks.fetchActivitiesByOverlap).toHaveBeenCalledTimes(1)
+
+    release()
+    await waitFor(() => expect(apiMocks.fetchActivitiesByOverlap).toHaveBeenCalledTimes(2))
+  })
+
+  it('云端写入失败时回滚本地记录并提示错误', async () => {
+    apiMocks.switchActivity.mockRejectedValue(new Error('网络中断'))
+    const user = userEvent.setup()
+    render(<App />)
+    await screen.findAllByText('写作')
+
+    await user.type(screen.getByLabelText('活动名称'), '写周报')
+    await user.click(screen.getByRole('button', { name: '记录' }))
+
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('网络中断'))
+    expect(screen.queryByText('写周报')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('活动名称')).toHaveValue('写周报')
+  })
+
+  it('重置不弹确认框，先下载当日 CSV 再清空所有记录', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    const user = userEvent.setup()
+    render(<App />)
+    await screen.findAllByText('写作')
+
+    const createObjectURL = URL.createObjectURL as unknown as ReturnType<typeof vi.fn>
+    await user.click(screen.getByRole('button', { name: '重置' }))
+
+    expect(confirm).not.toHaveBeenCalled()
+    await waitFor(() => expect(apiMocks.deleteAllActivities).toHaveBeenCalledWith(userId))
+    expect(createObjectURL).toHaveBeenCalled()
+  })
+
+  it('滚动区只包含记录条目，不含标题和今日记录抬头', async () => {
+    render(<App />)
+    await screen.findAllByText('写作')
+    const scroll = document.querySelector('.display')
+    expect(scroll).not.toBeNull()
+    expect(scroll!.textContent ?? '').not.toContain('今日记录')
+    expect(scroll!.textContent ?? '').not.toContain('时间记录')
+    expect(scroll!.querySelectorAll('.record-row').length).toBeGreaterThan(0)
+  })
+
+  it('记录卡片不留 min-height，底部内边距足以容纳时间带', () => {
+    const css = readFileSync(resolve(process.cwd(), 'src/styles.css'), 'utf8')
+    const surface = css.match(/\.row-surface\s*\{([^}]*)\}/)
+    expect(surface).not.toBeNull()
+    const block = surface![1]
+    expect(block).not.toMatch(/min-height/)
+    // padding: 20px 22px —— 下边距要装得下时间（12px 行高 1.2 + 距底 3px）
+    const padding = block.match(/padding:\s*(\d+)px\s+(\d+)px/)
+    expect(padding).not.toBeNull()
+    expect(Number(padding![1])).toBeGreaterThanOrEqual(17)
+    expect(Number(padding![2])).toBe(22)
+  })
+
+  it('当前进行中的那条记录有独立的强调样式', async () => {
+    render(<App />)
+    await screen.findAllByText('写作')
+
+    const ongoing = document.querySelector('.record-row.ongoing')
+    expect(ongoing).not.toBeNull()
+    expect(ongoing!.querySelector('.row-name')?.textContent).toBe('写作')
+
+    const css = readFileSync(resolve(process.cwd(), 'src/styles.css'), 'utf8')
+    // 左侧色条 + 描边 + 浅绿底
+    expect(css).toMatch(/\.record-row\.ongoing \.row-surface \{[^}]*inset 3px 0 0 0 var\(--accent\)/)
+    expect(css).toMatch(/\.record-row\.ongoing \.row-surface \{[^}]*var\(--accent-soft\)/)
+    expect(css).toMatch(/\.record-row\.ongoing \.row-name \{[^}]*var\(--accent-deep\)/)
+  })
+
+  it('全站配色采用指定的冷静自然色板', () => {
+    const css = readFileSync(resolve(process.cwd(), 'src/styles.css'), 'utf8')
+    const tokens: Record<string, string> = {
+      '--canvas': '#f5f5f0',
+      '--surface': '#ffffff',
+      '--ink': '#303630',
+      '--ink-2': '#737a74',
+      '--accent': '#64856b',
+      '--accent-soft': '#e6eee5',
+      '--info': '#6486a3',
+      '--warn': '#c18b4f',
+      '--danger': '#b85c56',
+      '--hairline': '#e3e6df',
+    }
+    for (const [name, value] of Object.entries(tokens)) {
+      expect(css).toContain(`${name}: ${value};`)
+    }
+    // 时间信息用辅助蓝，危险操作才用红色
+    expect(css).toMatch(/\.row-time \{[^}]*var\(--info-text\)/)
+    expect(css).toMatch(/\.row-delete \{[^}]*var\(--danger\)/)
+  })
+
+  it('时间两列固定宽度，保证每条记录时刻纵向对齐', () => {
+    const css = readFileSync(resolve(process.cwd(), 'src/styles.css'), 'utf8')
+    expect(css).toMatch(/\.row-time\s*\{[^}]*min-width/)
+    expect(css).toMatch(/\.row-duration\s*\{[^}]*min-width/)
+    expect(css).toMatch(/\.row-time\s*\{[^}]*text-align:\s*right/)
+    expect(css).toMatch(/\.row-duration\s*\{[^}]*text-align:\s*right/)
+  })
+
+  it('长按自定义按钮可拖动换位并保存排序', async () => {
+    apiMocks.fetchShortcuts.mockResolvedValue([
+      shortcut({ id: 'default-id', name: '学习', is_default: true }),
+      shortcut({ id: 'read-id', name: '阅读', is_default: false }),
+      shortcut({ id: 'write-id', name: '写作', is_default: false }),
+    ])
+    const rect = (left: number, right: number): DOMRect => ({
+      left, right, top: 0, bottom: 34, width: right - left, height: 34,
+      x: left, y: 0, toJSON: () => ({}),
+    }) as DOMRect
+    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+      const text = this.textContent ?? ''
+      if (text.includes('阅读')) return rect(0, 60)
+      if (text.includes('写作')) return rect(60, 120)
+      return rect(0, 0)
+    })
+
+    render(<App />)
+    await screen.findAllByText('写作')
+
+    const writeChip = screen.getByRole('button', { name: '写作' })
+    fireEvent.pointerDown(writeChip, { pointerId: 1, clientX: 90, clientY: 10 })
+    await new Promise((resolve) => setTimeout(resolve, 450))
+    fireEvent.pointerMove(writeChip, { pointerId: 1, clientX: 20, clientY: 10 })
+    fireEvent.pointerUp(writeChip, { pointerId: 1, clientX: 20, clientY: 10 })
+
+    await waitFor(() => expect(apiMocks.reorderShortcuts).toHaveBeenCalled())
+    const saved = apiMocks.reorderShortcuts.mock.calls[0][0] as Array<{ name: string }>
+    expect(saved.map((item) => item.name)).toEqual(['学习', '写作', '阅读'])
   })
 
   it('手机布局规则存在且首屏控件保留', async () => {
     const css = readFileSync(resolve(process.cwd(), 'src/styles.css'), 'utf8')
     render(<App />)
     expect(await screen.findAllByLabelText('活动名称')).not.toHaveLength(0)
-    expect(screen.getByRole('button', { name: '开始记录' })).toBeInTheDocument()
-    expect(css).toContain('@media (max-width: 520px)')
-    expect(css).toContain('grid-template-columns: repeat(3, 1fr)')
+    expect(screen.getByRole('button', { name: '记录' })).toBeInTheDocument()
+    expect(css).toContain('@media (max-width: 560px)')
+    expect(css).toContain('flex-direction: column')
+    // 底部按钮可用性依赖滚动区能收缩
+    expect(css).toContain('min-height: 0')
   })
 })

@@ -1,8 +1,12 @@
 import { redirectUrl, supabase } from './supabase'
 import type { Activity, Shortcut } from '../types'
 
+// crypto.randomUUID 在旧浏览器下可能缺失，做一层兜底
 function messageId() {
-  return crypto.randomUUID()
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
 }
 
 export async function signIn(email: string, password: string) {
@@ -97,5 +101,10 @@ export async function fetchAllActivities() {
 
 export async function deleteActivity(id: string) {
   const { error } = await supabase.from('activities').delete().eq('id', id)
+  if (error) throw new Error(error.message)
+}
+
+export async function deleteAllActivities(userId: string) {
+  const { error } = await supabase.from('activities').delete().eq('user_id', userId)
   if (error) throw new Error(error.message)
 }

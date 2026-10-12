@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { PointerEvent as ReactPointerEvent } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { AuthForm } from './components/AuthForm'
-import { supabase } from './lib/supabase'
+import { configError, supabase } from './lib/supabase'
 import {
   addShortcut,
   deleteActivity,
+  deleteAllActivities,
   deleteShortcut,
   fetchActivitiesByOverlap,
-  fetchAllActivities,
   fetchShortcuts,
   renameShortcut,
   reorderShortcuts,
@@ -15,25 +16,105 @@ import {
   touchInteraction,
 } from './lib/api'
 import {
-  beijingMinute,
-  durationText,
+  beijingClockLabel,
   dayRange,
-  shiftDate,
+  durationLabel,
   splitForStatDay,
   statisticalDay,
 } from './lib/time'
-import { exportCsv, exportJson } from './lib/export'
+import { exportCsv } from './lib/export'
 import type { Activity, Shortcut } from './types'
 
-const sourceLabels: Record<Activity['source'], string> = {
-  manual: '手动',
-  shortcut: '快捷',
-  auto_sleep: '自动睡眠',
-  auto_pause: '自动暂停',
+const REVEAL = 84
+
+// crypto.randomUUID 在旧浏览器或非安全上下文下可能不存在，做一层兜底
+function newId() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
 }
 
-function sourceLabel(source: string) {
-  return sourceLabels[source as Activity['source']] ?? source
+interface RowProps {
+  name: string
+  timeText: string
+  durationText: string
+  ongoing: boolean
+  onDelete: () => void
+}
+
+// 左滑露出删除按钮；桌面端同样支持鼠标拖动。
+function SwipeRow({ name, timeText, durationText, ongoing, onDelete }: RowProps) {
+  const [offset, setOffset] = useState(0)
+  const offsetRef = useRef(0)
+  const startX = useRef(0)
+  const startY = useRef(0)
+  const baseOffset = useRef(0)
+  const axis = useRef<'none' | 'x' | 'y'>('none')
+  const active = useRef(false)
+
+  function applyOffset(value: number) {
+    offsetRef.current = value
+    setOffset(value)
+  }
+
+  function handleDown(event: ReactPointerEvent<HTMLDivElement>) {
+    active.current = true
+    axis.current = 'none'
+    startX.current = event.clientX
+    startY.current = event.clientY
+    baseOffset.current = offsetRef.current
+  }
+
+  function handleMove(event: ReactPointerEvent<HTMLDivElement>) {
+    if (!active.current) return
+    const dx = event.clientX - startX.current
+    const dy = event.clientY - startY.current
+    if (axis.current === 'none') {
+      if (Math.abs(dx) > 8 && Math.abs(dx) > Math.abs(dy)) {
+        axis.current = 'x'
+        event.currentTarget.setPointerCapture(event.pointerId)
+      } else if (Math.abs(dy) > 8) {
+        axis.current = 'y'
+      }
+    }
+    if (axis.current !== 'x') return
+    applyOffset(Math.min(0, Math.max(-REVEAL, baseOffset.current + dx)))
+  }
+
+  function handleUp() {
+    if (!active.current) return
+    active.current = false
+    if (axis.current === 'x') {
+      // 左滑一点点就停在露出删除按钮的位置，避免回弹
+      applyOffset(offsetRef.current <= -20 ? -REVEAL : 0)
+    }
+  }
+
+  return (
+    <li className={ongoing ? 'record-row ongoing' : 'record-row'}>
+      <button type="button" className="row-delete" aria-label="删除" onClick={onDelete}>
+        删除
+      </button>
+      <div
+        className="row-surface"
+        style={{ transform: `translateX(${offset}px)` }}
+        onPointerDown={handleDown}
+        onPointerMove={handleMove}
+        onPointerUp={handleUp}
+        onPointerCancel={handleUp}
+        onClick={() => {
+          if (offsetRef.current !== 0) applyOffset(0)
+        }}
+      >
+        <span className="row-name">{name}</span>
+        <span className="row-meta">
+          <span className="row-time">{timeText}</span>
+          <span className="row-duration">{durationText}</span>
+        </span>
+      </div>
+    </li>
+  )
 }
 
 export default function App() {
@@ -41,21 +122,37 @@ export default function App() {
   const [authReady, setAuthReady] = useState(false)
   const [shortcuts, setShortcuts] = useState<Shortcut[]>([])
   const [records, setRecords] = useState<Activity[]>([])
-  const [selectedDay, setSelectedDay] = useState(() => statisticalDay())
+  const [statDay, setStatDay] = useState(() => statisticalDay())
   const [activityName, setActivityName] = useState('')
   const [actionError, setActionError] = useState('')
   const [interactionError, setInteractionError] = useState('')
-  const [busy, setBusy] = useState(false)
   const [managing, setManaging] = useState(false)
   const [newShortcut, setNewShortcut] = useState('')
   const [now, setNow] = useState(() => new Date())
   const lastTouchRef = useRef(0)
+  // 同步写锁：state 更新是异步的，用 ref 才能真正挡住同帧内的重复提交
+  const writeLock = useRef(false)
+  const [draggingId, setDraggingId] = useState<string | null>(null)
+  const [draftOrder, setDraftOrder] = useState<Shortcut[] | null>(null)
+  const [dragDelta, setDragDelta] = useState({ x: 0, y: 0 })
+  const chipRefs = useRef<Record<string, HTMLButtonElement | null>>({})
+  const pressTimer = useRef<number | null>(null)
+  const pressStart = useRef<{ x: number; y: number; id: string } | null>(null)
+  const dragState = useRef<{ id: string; order: Shortcut[] } | null>(null)
+  const suppressTap = useRef(false)
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session)
-      setAuthReady(true)
-    })
+    if (configError) return
+
+    supabase.auth.getSession()
+      .then(({ data }) => {
+        setSession(data.session)
+        setAuthReady(true)
+      })
+      .catch((error) => {
+        setActionError(error instanceof Error ? error.message : '登录状态读取失败')
+        setAuthReady(true)
+      })
 
     const { data: authListener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
       setSession(nextSession)
@@ -77,15 +174,28 @@ export default function App() {
     setShortcuts(await fetchShortcuts())
   }, [session])
 
+  // 统一的刷新入口：永远不产生未捕获的 Promise 拒绝
+  const reloadRecords = useCallback((day: string) => {
+    loadRecords(day).catch((error) => {
+      setActionError(error instanceof Error ? error.message : '刷新记录失败，请稍后重试')
+    })
+  }, [loadRecords])
+
+  const reloadShortcuts = useCallback(() => {
+    loadShortcuts().catch((error) => {
+      setActionError(error instanceof Error ? error.message : '刷新快捷按钮失败，请稍后重试')
+    })
+  }, [loadShortcuts])
+
   useEffect(() => {
     if (!session) {
       setShortcuts([])
       setRecords([])
       return
     }
-    loadShortcuts().catch((error) => setActionError(error.message))
-    loadRecords(selectedDay).catch((error) => setActionError(error.message))
-  }, [session, selectedDay, loadShortcuts, loadRecords])
+    reloadShortcuts()
+    reloadRecords(statDay)
+  }, [session, statDay, reloadShortcuts, reloadRecords])
 
   useEffect(() => {
     if (!session) return
@@ -97,7 +207,9 @@ export default function App() {
         table: 'activities',
         filter: `user_id=eq.${userId}`,
       }, () => {
-        loadRecords(selectedDay).catch(() => undefined)
+        // 本地写入进行中时跳过，避免实时事件把乐观记录冲掉
+        if (writeLock.current) return
+        reloadRecords(statDay)
       })
       .on('postgres_changes', {
         event: '*',
@@ -105,17 +217,23 @@ export default function App() {
         table: 'shortcuts',
         filter: `user_id=eq.${userId}`,
       }, () => {
-        loadShortcuts().catch(() => undefined)
+        if (writeLock.current) return
+        reloadShortcuts()
       })
       .subscribe()
 
     return () => {
       void supabase.removeChannel(channel)
     }
-  }, [session, selectedDay, loadRecords, loadShortcuts])
+  }, [session, statDay, reloadRecords, reloadShortcuts])
 
+  // 30 秒刷新一次即可，界面只展示到分钟，不出现秒数跳动。
   useEffect(() => {
-    const timer = window.setInterval(() => setNow(new Date()), 1000)
+    const timer = window.setInterval(() => {
+      const next = new Date()
+      setNow(next)
+      setStatDay(statisticalDay(next))
+    }, 30_000)
     return () => window.clearInterval(timer)
   }, [])
 
@@ -151,71 +269,316 @@ export default function App() {
     [records],
   )
   const todaySegments = useMemo(
-    () => splitForStatDay(records, selectedDay, now),
-    [records, selectedDay, now],
+    () => splitForStatDay(records, statDay, now),
+    [records, statDay, now],
   )
 
-  function runAction(action: () => Promise<void>) {
-    if (busy) return
-    setBusy(true)
+  // 写入策略：先在本地渲染，再同步云端。成功后用服务器数据替换本地临时数据；
+  // 失败则回滚到服务器状态并提示，不做离线队列。
+  function syncRecords(applyLocal: () => void, action: () => Promise<unknown>, onFail?: () => void) {
+    if (writeLock.current) return
+    writeLock.current = true
     setActionError('')
-    action().catch((error) => setActionError(error.message)).finally(() => setBusy(false))
+    applyLocal()
+    Promise.resolve()
+      .then(action)
+      .catch((error) => {
+        setActionError(error instanceof Error ? error.message : '同步失败，请重试')
+        onFail?.()
+      })
+      .finally(() => {
+        writeLock.current = false
+        reloadRecords(statDay)
+      })
   }
 
-  async function startRecord(source: 'manual' | 'shortcut') {
+  function syncShortcuts(applyLocal: () => void, action: () => Promise<unknown>, onFail?: () => void) {
+    if (writeLock.current) return
+    writeLock.current = true
+    setActionError('')
+    applyLocal()
+    Promise.resolve()
+      .then(action)
+      .catch((error) => {
+        setActionError(error instanceof Error ? error.message : '同步失败，请重试')
+        onFail?.()
+      })
+      .finally(() => {
+        writeLock.current = false
+        reloadShortcuts()
+      })
+  }
+
+  // 本地临时记录：id 带 local- 前缀，云端返回后会被真实记录替换
+  function optimisticRecord(name: string, source: 'manual' | 'shortcut'): Activity {
+    const nowIso = new Date().toISOString()
+    return {
+      id: `local-${newId()}`,
+      user_id: session?.user.id ?? '',
+      name,
+      started_at: nowIso,
+      ended_at: null,
+      source,
+      metadata: {},
+      created_at: nowIso,
+    }
+  }
+
+  function localSwitch(name: string, source: 'manual' | 'shortcut') {
+    const optimistic = optimisticRecord(name, source)
+    setRecords((rows) => [
+      ...rows.map((row) => (row.ended_at === null ? { ...row, ended_at: optimistic.started_at } : row)),
+      optimistic,
+    ])
+  }
+
+  function startRecord() {
     const name = activityName.trim()
     if (!name) {
       setActionError('请先输入活动名称')
       return
     }
-    await switchActivity(name, source)
-    await loadRecords(selectedDay)
+    const previous = records
     setActivityName('')
+    syncRecords(
+      () => localSwitch(name, 'manual'),
+      () => switchActivity(name, 'manual'),
+      () => {
+        setRecords(previous)
+        setActivityName(name)
+      },
+    )
   }
 
-  async function startShortcut(shortcut: Shortcut) {
+  function startShortcut(shortcut: Shortcut) {
     if (shortcut.is_default) {
       setActivityName(shortcut.name)
       return
     }
-    await switchActivity(shortcut.name, 'shortcut')
-    await loadRecords(selectedDay)
+    const previous = records
+    syncRecords(
+      () => localSwitch(shortcut.name, 'shortcut'),
+      () => switchActivity(shortcut.name, 'shortcut'),
+      () => setRecords(previous),
+    )
   }
 
+  function removeRecord(id: string) {
+    const previous = records
+    syncRecords(
+      () => setRecords((rows) => rows.filter((row) => row.id !== id)),
+      () => deleteActivity(id),
+      () => setRecords(previous),
+    )
+  }
+
+  // 重置：先把当日 CSV 下载到本地再清空；本地立即清空，云端失败会回滚
+  function resetAll() {
+    if (!session) return
+    const previous = records
+    if (records.length > 0) exportCsv(records, statDay)
+    syncRecords(
+      () => setRecords([]),
+      () => deleteAllActivities(session.user.id),
+      () => setRecords(previous),
+    )
+  }
+
+  const orderedShortcuts = draftOrder ?? shortcuts
+
+  function clearPressTimer() {
+    if (pressTimer.current !== null) {
+      window.clearTimeout(pressTimer.current)
+      pressTimer.current = null
+    }
+  }
+
+  function chipUnderPointer(x: number, y: number) {
+    for (const [id, element] of Object.entries(chipRefs.current)) {
+      if (!element) continue
+      const shortcut = shortcuts.find((item) => item.id === id)
+      // 默认三个按钮固定在前，不参与拖动
+      if (!shortcut || shortcut.is_default) continue
+      const rect = element.getBoundingClientRect()
+      if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) return id
+    }
+    return null
+  }
+
+  // 长按 400ms 进入移动状态，移动过程中实时交换位置
+  function handleChipPointerDown(shortcut: Shortcut, event: ReactPointerEvent<HTMLButtonElement>) {
+    if (managing || shortcut.is_default || writeLock.current) return
+    const element = event.currentTarget
+    pressStart.current = { x: event.clientX, y: event.clientY, id: shortcut.id }
+    clearPressTimer()
+    pressTimer.current = window.setTimeout(() => {
+      pressTimer.current = null
+      element.setPointerCapture?.(event.pointerId)
+      const order = [...shortcuts]
+      dragState.current = { id: shortcut.id, order }
+      suppressTap.current = true
+      setDraftOrder(order)
+      setDraggingId(shortcut.id)
+    }, 400)
+  }
+
+  function handleChipPointerMove(event: ReactPointerEvent<HTMLButtonElement>) {
+    const start = pressStart.current
+    if (!start) return
+    const state = dragState.current
+    if (!state) {
+      if (Math.abs(event.clientX - start.x) > 8 || Math.abs(event.clientY - start.y) > 8) {
+        clearPressTimer()
+      }
+      return
+    }
+    if (state.id !== start.id) return
+    setDragDelta({ x: event.clientX - start.x, y: event.clientY - start.y })
+    const hovered = chipUnderPointer(event.clientX, event.clientY)
+    if (!hovered || hovered === state.id) return
+    const from = state.order.findIndex((item) => item.id === state.id)
+    const to = state.order.findIndex((item) => item.id === hovered)
+    if (from < 0 || to < 0 || from === to) return
+    const next = [...state.order]
+    const [moved] = next.splice(from, 1)
+    next.splice(to, 0, moved)
+    state.order = next
+    animateReorder(next, state.id)
+  }
+
+  // 交换顺序前后记录位置差，用 FLIP 让其它按钮平滑让位
+  function animateReorder(next: Shortcut[], draggedId: string) {
+    const before = new Map<string, DOMRect>()
+    for (const [id, element] of Object.entries(chipRefs.current)) {
+      if (element) before.set(id, element.getBoundingClientRect())
+    }
+    setDraftOrder(next)
+    window.requestAnimationFrame(() => {
+      for (const [id, element] of Object.entries(chipRefs.current)) {
+        if (!element || id === draggedId) continue
+        const previous = before.get(id)
+        if (!previous) continue
+        const current = element.getBoundingClientRect()
+        const dx = previous.left - current.left
+        const dy = previous.top - current.top
+        if (dx === 0 && dy === 0) continue
+        element.style.transition = 'none'
+        element.style.transform = `translate(${dx}px, ${dy}px)`
+        window.requestAnimationFrame(() => {
+          element.style.transition = 'transform .24s cubic-bezier(.2,.8,.2,1)'
+          element.style.transform = ''
+          window.setTimeout(() => { element.style.transition = '' }, 260)
+        })
+      }
+    })
+  }
+
+  function handleChipPointerUp() {
+    clearPressTimer()
+    pressStart.current = null
+    const state = dragState.current
+    if (!state) return
+    dragState.current = null
+    setDraggingId(null)
+    setDraftOrder(null)
+    setDragDelta({ x: 0, y: 0 })
+    window.setTimeout(() => { suppressTap.current = false }, 300)
+    const previous = shortcuts
+    syncShortcuts(
+      () => setShortcuts(state.order),
+      () => reorderShortcuts(state.order),
+      () => setShortcuts(previous),
+    )
+  }
+
+  if (configError) {
+    return (
+      <main className="shell">
+        <div className="auth-panel">
+          <h1>配置缺失</h1>
+          <p className="empty">{configError}</p>
+        </div>
+      </main>
+    )
+  }
   if (!authReady) {
-    return <main className="shell"><p>加载中...</p></main>
+    return <main className="shell"><p className="empty">加载中…</p></main>
   }
   if (!session) return <AuthForm />
 
   return (
-    <main className="shell">
+    <div className="app">
       <header className="app-header">
-        <h1>个人时间记录</h1>
-        <div className="account">
-          <span>{session.user.email}</span>
-          <button className="ghost" onClick={() => runAction(async () => {
-            const { error } = await supabase.auth.signOut()
-            if (error) throw error
-          })}>退出</button>
-        </div>
+        <h1>时间记录</h1>
+        <button
+          type="button"
+          className="reset-btn"
+          onClick={resetAll}
+          disabled={records.length === 0}
+          title="下载当日 CSV 并清空全部记录"
+        >
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
+            <path d="M3 3v5h5" />
+          </svg>
+          重置
+        </button>
       </header>
 
-      <section className="current-panel" aria-labelledby="current-title">
-        <h2 id="current-title">当前活动</h2>
+      <section className="current" aria-live="polite">
         {current ? (
-          <>
-            <p className="current-name">{current.name}</p>
-            <p className="current-meta">
-              {beijingMinute(current.started_at)} 开始 · 已持续 {durationText(current.started_at, null)}
-            </p>
-            {current.source === 'auto_sleep' && <p className="muted">系统睡眠中，07:00 自动结束</p>}
-          </>
-        ) : <p className="muted">无进行中活动</p>}
+          <h2 className="current-name">
+            <span className="live-dot" aria-hidden="true" />
+            <span className="current-text">{current.name}</span>
+          </h2>
+        ) : (
+          <h2 className="current-name idle">没有进行中的活动</h2>
+        )}
+      </section>
 
-        <form className="start-form" onSubmit={(event) => {
-          event.preventDefault()
-          runAction(() => startRecord('manual'))
-        }}>
+      <div className="history-head">
+        <h3>今日记录</h3>
+        <span className="history-day">{statDay}</span>
+      </div>
+
+      <main className="display" aria-label="今日记录列表">
+        {todaySegments.length === 0 ? (
+          <p className="empty">还没有记录，从下面开始。</p>
+        ) : (
+          <ol className="record-list">
+            {todaySegments.map((segment) => (
+              <SwipeRow
+                key={`${segment.record.id}-${segment.segment_start}`}
+                name={segment.record.name}
+                timeText={beijingClockLabel(segment.record.started_at)}
+                durationText={durationLabel(segment.segment_start, segment.segment_end)}
+                ongoing={segment.record.ended_at === null}
+                onDelete={() => {
+                  if (window.confirm('确认删除这条记录？删除后不可恢复。')) {
+                    removeRecord(segment.record.id)
+                  }
+                }}
+              />
+            ))}
+          </ol>
+        )}
+      </main>
+
+      {(actionError || interactionError) && (
+        <div className="alerts">
+          {actionError && <p className="error" role="alert">{actionError}</p>}
+          {interactionError && <p className="notice" role="status">{interactionError}</p>}
+        </div>
+      )}
+
+      <footer className="composer">
+        <form
+          className="composer-form"
+          onSubmit={(event) => {
+            event.preventDefault()
+            startRecord()
+          }}
+        >
           <input
             aria-label="活动名称"
             placeholder="正在做什么？"
@@ -223,161 +586,106 @@ export default function App() {
             onChange={(event) => setActivityName(event.target.value)}
             maxLength={80}
           />
-          <button className="primary" type="submit" disabled={busy}>开始记录</button>
+          <button className="primary" type="submit">
+            记录
+          </button>
         </form>
 
-        <div className="shortcut-block">
-          <div className="section-title">
-            <h3>常用按钮</h3>
-            <button className="link" onClick={() => setManaging(!managing)}>
-              {managing ? '完成' : '管理'}
-            </button>
-          </div>
-          <div className="shortcut-grid">
-            {shortcuts.map((shortcut) => (
-              <div key={shortcut.id} className="shortcut-item">
-                {managing ? (
-                  <>
-                    <input
-                      aria-label="快捷按钮名称"
-                      defaultValue={shortcut.name}
-                      onBlur={(event) => {
-                        const name = event.target.value.trim()
-                        if (name && name !== shortcut.name) {
-                          runAction(async () => {
-                            await renameShortcut(shortcut.id, name)
-                            await loadShortcuts()
-                          })
-                        }
-                      }}
-                    />
-                    <button className="icon" aria-label="上移" onClick={() => {
-                      const index = shortcuts.findIndex((item) => item.id === shortcut.id)
-                      if (index <= 0) return
-                      const next = [...shortcuts]
-                      ;[next[index - 1], next[index]] = [next[index], next[index - 1]]
-                      runAction(async () => {
-                        await reorderShortcuts(next)
-                        await loadShortcuts()
-                      })
-                    }}>↑</button>
-                    <button className="icon" aria-label="下移" onClick={() => {
-                      const index = shortcuts.findIndex((item) => item.id === shortcut.id)
-                      if (index < 0 || index === shortcuts.length - 1) return
-                      const next = [...shortcuts]
-                      ;[next[index + 1], next[index]] = [next[index], next[index + 1]]
-                      runAction(async () => {
-                        await reorderShortcuts(next)
-                        await loadShortcuts()
-                      })
-                    }}>↓</button>
-                    <button className="danger icon" aria-label={`删除 ${shortcut.name}`} onClick={() => {
-                      if (!window.confirm(`确认删除「${shortcut.name}」按钮？`)) return
-                      runAction(async () => {
-                        await deleteShortcut(shortcut.id)
-                        await loadShortcuts()
-                      })
-                    }}>×</button>
-                  </>
-                ) : (
-                  <button
-                    className={shortcut.is_default ? 'shortcut' : 'shortcut custom'}
-                    disabled={busy || current?.source === 'auto_sleep'}
-                    onClick={() => runAction(() => startShortcut(shortcut))}
-                  >
-                    {shortcut.name}
-                  </button>
-                )}
-              </div>
-            ))}
-          </div>
-
-          {managing && (
-            <form className="shortcut-add" onSubmit={(event) => {
-              event.preventDefault()
-              const name = newShortcut.trim()
-              if (!name) return
-              runAction(async () => {
-                await addShortcut(name)
-                setNewShortcut('')
-                await loadShortcuts()
-              })
-            }}>
-              <input
-                aria-label="新增快捷按钮"
-                placeholder="新增自定义按钮"
-                value={newShortcut}
-                onChange={(event) => setNewShortcut(event.target.value)}
-                maxLength={80}
-              />
-              <button type="submit" disabled={busy}>新增</button>
-            </form>
-          )}
-        </div>
-      </section>
-
-      <section aria-labelledby="today-title">
-        <div className="section-title">
-          <h2 id="today-title">{selectedDay} 明细</h2>
-          <label className="date-label">
-            日期
-            <input
-              type="date"
-              value={selectedDay}
-              onChange={(event) => event.target.value && setSelectedDay(event.target.value)}
-            />
-          </label>
-          <button className="ghost" onClick={() => setSelectedDay(shiftDate(selectedDay, -1))}>前一天</button>
-          <button className="ghost" onClick={() => setSelectedDay(statisticalDay())}>今天</button>
-        </div>
-
-        {actionError && <p className="error" role="alert">{actionError}</p>}
-        {interactionError && <p className="notice" role="status">{interactionError}</p>}
-
-        <ol className="record-list">
-          {todaySegments.map((segment) => (
-              <li key={`${segment.record.id}-${segment.segment_start}`}>
-                <div>
-                  <strong>{segment.record.name}</strong>
-                  <span>{sourceLabel(segment.record.source)}</span>
-                </div>
-                <div className="record-meta">
-                  {beijingMinute(segment.segment_start)} – {segment.segment_end ? beijingMinute(segment.segment_end) : '进行中'}
-                  <span>{durationText(segment.segment_start, segment.segment_end)}</span>
-                </div>
+        <div className="shortcut-row">
+          {orderedShortcuts.map((shortcut) => (
+            <div key={shortcut.id} className="shortcut-item">
+              {managing ? (
+                <>
+                  <input
+                    aria-label="快捷按钮名称"
+                    defaultValue={shortcut.name}
+                    onBlur={(event) => {
+                      const name = event.target.value.trim()
+                      if (name && name !== shortcut.name) {
+                        const previous = shortcuts
+                        syncShortcuts(
+                          () => setShortcuts((items) => items.map((item) => (
+                            item.id === shortcut.id ? { ...item, name } : item
+                          ))),
+                          () => renameShortcut(shortcut.id, name),
+                          () => setShortcuts(previous),
+                        )
+                      }
+                    }}
+                  />
+                  <button className="icon danger" aria-label={`删除 ${shortcut.name}`} onClick={() => {
+                    if (!window.confirm(`确认删除「${shortcut.name}」按钮？`)) return
+                    const previous = shortcuts
+                    syncShortcuts(
+                      () => setShortcuts((items) => items.filter((item) => item.id !== shortcut.id)),
+                      () => deleteShortcut(shortcut.id),
+                      () => setShortcuts(previous),
+                    )
+                  }}>×</button>
+                </>
+              ) : (
                 <button
-                  className="danger link"
+                  ref={(element) => { chipRefs.current[shortcut.id] = element }}
+                  type="button"
+                  className={[
+                    'shortcut',
+                    shortcut.is_default ? '' : 'custom',
+                    draggingId === shortcut.id ? 'dragging' : '',
+                  ].filter(Boolean).join(' ')}
+                  onContextMenu={(event) => event.preventDefault()}
+                  onPointerDown={(event) => handleChipPointerDown(shortcut, event)}
+                  onPointerMove={handleChipPointerMove}
+                  onPointerUp={handleChipPointerUp}
+                  onPointerCancel={handleChipPointerUp}
+                  style={draggingId === shortcut.id
+                    ? { transform: `translate(${dragDelta.x}px, ${dragDelta.y}px) scale(1.08)`, zIndex: 5 }
+                    : undefined}
                   onClick={() => {
-                    if (!window.confirm('确认删除这条记录？删除后不可恢复。')) return
-                    runAction(async () => {
-                      await deleteActivity(segment.record.id)
-                      await loadRecords(selectedDay)
-                    })
+                    if (suppressTap.current) return
+                    startShortcut(shortcut)
                   }}
                 >
-                  删除
+                  {shortcut.name}
                 </button>
-              </li>
+              )}
+            </div>
           ))}
-        </ol>
-        {todaySegments.length === 0 && <p className="muted">这一天暂无记录</p>}
-      </section>
-
-      <section aria-labelledby="export-title">
-        <h2 id="export-title">导出</h2>
-        <div className="export-actions">
-          <button disabled={busy} onClick={() => exportCsv(records, selectedDay)}>导出当日 CSV</button>
-          <button disabled={busy} onClick={() => exportJson(records, selectedDay)}>导出当日 JSON</button>
-          <button disabled={busy} onClick={() => {
-            if (!window.confirm('确认导出全部历史记录？')) return
-            runAction(async () => exportCsv(await fetchAllActivities(), 'all'))
-          }}>导出全部 CSV</button>
-          <button disabled={busy} onClick={() => {
-            if (!window.confirm('确认导出全部历史记录？')) return
-            runAction(async () => exportJson(await fetchAllActivities(), 'all'))
-          }}>导出全部 JSON</button>
+          <button type="button" className="manage-btn" onClick={() => setManaging(!managing)}>
+            {managing ? '完成' : '编辑'}
+          </button>
         </div>
-      </section>
-    </main>
+
+        {managing && (
+          <form className="shortcut-add" onSubmit={(event) => {
+            event.preventDefault()
+            const name = newShortcut.trim()
+            if (!name) return
+            const optimistic: Shortcut = {
+              id: `local-${newId()}`,
+              user_id: session?.user.id ?? '',
+              name,
+              sort_order: shortcuts.length + 1,
+              is_default: false,
+              created_at: new Date().toISOString(),
+            }
+            setNewShortcut('')
+            syncShortcuts(
+              () => setShortcuts((items) => [...items, optimistic]),
+              () => addShortcut(name),
+              () => setNewShortcut(name),
+            )
+          }}>
+            <input
+              aria-label="新增快捷按钮"
+              placeholder="新增快捷按钮"
+              value={newShortcut}
+              onChange={(event) => setNewShortcut(event.target.value)}
+              maxLength={80}
+            />
+            <button type="submit">新增</button>
+          </form>
+        )}
+      </footer>
+    </div>
   )
 }

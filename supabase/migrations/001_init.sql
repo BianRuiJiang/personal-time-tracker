@@ -132,10 +132,6 @@ begin
   limit 1;
   v_has_current := found;
 
-  if v_has_current and v_current.source = 'auto_sleep' then
-    raise exception '睡眠中不能切换活动';
-  end if;
-
   -- 同名活动已开启时直接确认现状，避免双击或双设备重复创建。
   if v_has_current and v_current.name = v_name then
     update public.session_state
@@ -185,13 +181,6 @@ declare
 begin
   if v_user_id is null then
     raise exception '未登录';
-  end if;
-
-  if exists (
-    select 1 from public.activities
-    where user_id = v_user_id and ended_at is null and source = 'auto_sleep'
-  ) then
-    raise exception '睡眠中不更新普通活动交互';
   end if;
 
   v_now := clock_timestamp();
