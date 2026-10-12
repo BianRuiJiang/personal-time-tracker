@@ -1,11 +1,37 @@
 import { describe, expect, it } from 'vitest'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 const css = readFileSync(resolve(process.cwd(), 'src/styles.css'), 'utf8')
 const html = readFileSync(resolve(process.cwd(), 'index.html'), 'utf8')
 
 describe('移动端适配要点', () => {
+  it('手机端不显示重置按钮', () => {
+    expect(css).toMatch(/@media \(max-width: 560px\) \{[\s\S]{0,200}?\.reset-btn \{ display: none;/)
+  })
+
+  it('底部面板没有毛玻璃或柔和阴影', () => {
+    expect(css).not.toContain('backdrop-filter')
+    const composer = css.match(/\.composer \{([^}]*)\}/)
+    expect(composer).not.toBeNull()
+    expect(composer![1]).not.toContain('box-shadow')
+  })
+
+  it('提供可安装到主屏的 manifest 与应用图标', () => {
+    const manifest = JSON.parse(
+      readFileSync(resolve(process.cwd(), 'public/manifest.webmanifest'), 'utf8'),
+    )
+    expect(manifest.display).toBe('standalone')
+    expect(manifest.start_url).toBe('./')
+    expect(manifest.theme_color).toBe('#f5f5f0')
+    expect(manifest.icons.some((i: { purpose?: string }) => i.purpose === 'maskable')).toBe(true)
+    expect(html).toContain('rel="manifest"')
+    expect(html).toContain('apple-touch-icon')
+    for (const file of ['apple-touch-icon.png', 'icon-192.png', 'icon-512.png', 'icon-maskable-512.png']) {
+      expect(existsSync(resolve(process.cwd(), 'public/icons', file))).toBe(true)
+    }
+  })
+
   it('viewport 支持刘海安全区与软键盘压缩内容', () => {
     expect(html).toContain('viewport-fit=cover')
     expect(html).toContain('interactive-widget=resizes-content')

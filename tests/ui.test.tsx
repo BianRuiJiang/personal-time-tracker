@@ -174,6 +174,26 @@ describe('时间记录界面', () => {
     await waitFor(() => expect(apiMocks.fetchActivitiesByOverlap).toHaveBeenCalledTimes(2))
   })
 
+  it('删除记录后也会自动滚到底部', async () => {
+    const scrollTo = vi.fn()
+    Object.defineProperty(Element.prototype, 'scrollTo', {
+      value: scrollTo, writable: true, configurable: true,
+    })
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    try {
+      const user = userEvent.setup()
+      render(<App />)
+      await screen.findAllByText('写作')
+      scrollTo.mockClear()
+
+      await user.click(screen.getAllByRole('button', { name: '删除' })[0])
+
+      await waitFor(() => expect(scrollTo).toHaveBeenCalled())
+    } finally {
+      delete (Element.prototype as unknown as Record<string, unknown>).scrollTo
+    }
+  })
+
   it('斜向快速滑动不会被误判为左滑，避免闪出红色', async () => {
     render(<App />)
     await screen.findAllByText('写作')

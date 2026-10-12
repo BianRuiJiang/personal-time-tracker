@@ -309,7 +309,6 @@ h1, h2, h3, p, ol, li { margin: 0; padding: 0; }
   background: var(--surface);
   border-top: 1px solid var(--hairline);
   border-radius: 16px 16px 0 0;
-  box-shadow: 0 -1px 24px rgba(48, 54, 48, .05);
   /* 快捷按钮换行很多时限高，保证上方记录列表始终可见 */
   max-height: 56dvh;
   overflow-y: auto;
@@ -551,6 +550,8 @@ label { display: grid; gap: 6px; font-size: 13px; color: var(--ink-2); }
 }
 
 @media (max-width: 560px) {
+  /* 手机端不提供重置入口，避免误触清空全部记录 */
+  .reset-btn { display: none; }
   .app-header { padding: calc(env(safe-area-inset-top) + 16px) 16px 8px; }
   .current { padding: 10px 16px 20px; }
   .current-name { font-size: 32px; }
