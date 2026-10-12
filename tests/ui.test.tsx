@@ -174,6 +174,67 @@ describe('时间记录界面', () => {
     await waitFor(() => expect(apiMocks.fetchActivitiesByOverlap).toHaveBeenCalledTimes(2))
   })
 
+  it('快速连点不会丢操作：请求排队按顺序全部执行', async () => {
+    apiMocks.fetchShortcuts.mockResolvedValue([
+      shortcut({ id: 'read-id', name: '阅读', is_default: false }),
+      shortcut({ id: 'write-id', name: '写作', is_default: false }),
+    ])
+    apiMocks.fetchActivitiesByOverlap.mockResolvedValue([
+      activity({ id: 'open-id', name: '整理', ended_at: null }),
+    ])
+
+    const calls: string[] = []
+    // 用数组存放，避免 TS 把闭包里的赋值收窄成 never
+    const releaseFirst: Array<() => void> = []
+    apiMocks.switchActivity.mockImplementation((name: string) => {
+      calls.push(name)
+      if (calls.length === 1) {
+        return new Promise((resolve) => {
+          releaseFirst[0] = () => resolve(activity({ id: 's1', name }))
+        })
+      }
+      return Promise.resolve(activity({ id: 's2', name }))
+    })
+
+    const recordNames = () =>
+      Array.from(document.querySelectorAll('.row-name')).map((element) => element.textContent)
+
+    const user = userEvent.setup()
+    render(<App />)
+    await screen.findAllByText('整理')
+
+    await user.click(screen.getByRole('button', { name: '阅读' }))
+    await user.click(screen.getByRole('button', { name: '写作' }))
+
+    // 第一个请求还没回来，但两条都已经在本地可见，且第二个已排队未发出
+    expect(recordNames()).toContain('阅读')
+    expect(recordNames()).toContain('写作')
+    expect(calls).toEqual(['阅读'])
+
+    releaseFirst[0]?.()
+    await waitFor(() => expect(calls).toEqual(['阅读', '写作']))
+  })
+
+  it('当前已在记录同名活动时，重复提交被忽略，不产生重复记录', async () => {
+    apiMocks.fetchShortcuts.mockResolvedValue([
+      shortcut({ id: 'default-id', name: '学习', is_default: true }),
+      shortcut({ id: 'write-id', name: '写作', is_default: false }),
+    ])
+
+    const user = userEvent.setup()
+    render(<App />)
+    await screen.findAllByText('写作')
+
+    // 当前进行中的就是“写作”，点同名快捷按钮应直接忽略
+    await user.click(screen.getByRole('button', { name: '写作' }))
+    expect(apiMocks.switchActivity).not.toHaveBeenCalled()
+
+    // 手动输入同一个名字再点“记录”也一样
+    await user.type(screen.getByLabelText('活动名称'), '写作')
+    await user.click(screen.getByRole('button', { name: '记录' }))
+    expect(apiMocks.switchActivity).not.toHaveBeenCalled()
+  })
+
   it('删除记录不会触发自动滚动', async () => {
     const scrollTo = vi.fn()
     Object.defineProperty(Element.prototype, 'scrollTo', {

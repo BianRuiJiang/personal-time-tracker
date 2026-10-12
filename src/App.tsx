@@ -193,8 +193,10 @@ export default function App() {
   const displayRef = useRef<HTMLElement | null>(null)
   // 新增记录后需要把列表滚到底，让刚记的那条可见
   const scrollPending = useRef(false)
-  // 同步写锁：state 更新是异步的，用 ref 才能真正挡住同帧内的重复提交
-  const writeLock = useRef(false)
+  // 写操作串行排队：快速连点不会丢操作，也不会和刷新互相覆盖。
+  // pending > 0 期间不应用服务器快照，避免冲掉仍在排队的乐观记录。
+  const writeQueue = useRef<Promise<unknown>>(Promise.resolve())
+  const writePending = useRef(0)
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const [draftOrder, setDraftOrder] = useState<Shortcut[] | null>(null)
   const [dragDelta, setDragDelta] = useState({ x: 0, y: 0 })
@@ -270,8 +272,8 @@ export default function App() {
         table: 'activities',
         filter: `user_id=eq.${userId}`,
       }, () => {
-        // 本地写入进行中时跳过，避免实时事件把乐观记录冲掉
-        if (writeLock.current) return
+        // 本地写入排队中时跳过，避免实时事件把乐观记录冲掉
+        if (writePending.current > 0) return
         reloadRecords(statDay)
       })
       .on('postgres_changes', {
@@ -280,7 +282,7 @@ export default function App() {
         table: 'shortcuts',
         filter: `user_id=eq.${userId}`,
       }, () => {
-        if (writeLock.current) return
+        if (writePending.current > 0) return
         reloadShortcuts()
       })
       .subscribe()
@@ -352,38 +354,41 @@ export default function App() {
 
   // 写入策略：先在本地渲染，再同步云端。成功后用服务器数据替换本地临时数据；
   // 失败则回滚到服务器状态并提示，不做离线队列。
-  function syncRecords(applyLocal: () => void, action: () => Promise<unknown>, onFail?: () => void) {
-    if (writeLock.current) return
-    writeLock.current = true
+  function runWrite(
+    applyLocal: () => void,
+    action: () => Promise<unknown>,
+    refresh: () => void,
+    onFail?: () => void,
+  ) {
     setActionError('')
+    // 先同步反映到界面，用户点了就立刻能看到
     applyLocal()
-    Promise.resolve()
+    writePending.current += 1
+    let failed = false
+
+    // 排队执行：所有请求按点击顺序串行落到服务器，不会互相插队
+    const task = () => Promise.resolve()
       .then(action)
       .catch((error) => {
+        failed = true
         setActionError(error instanceof Error ? error.message : '同步失败，请重试')
-        onFail?.()
       })
       .finally(() => {
-        writeLock.current = false
-        reloadRecords(statDay)
+        writePending.current -= 1
+        if (failed) onFail?.()
+        // 队列排空后才以服务器状态为准
+        if (writePending.current === 0) refresh()
       })
+
+    writeQueue.current = writeQueue.current.then(task, task)
+  }
+
+  function syncRecords(applyLocal: () => void, action: () => Promise<unknown>, onFail?: () => void) {
+    runWrite(applyLocal, action, () => reloadRecords(statDay), onFail)
   }
 
   function syncShortcuts(applyLocal: () => void, action: () => Promise<unknown>, onFail?: () => void) {
-    if (writeLock.current) return
-    writeLock.current = true
-    setActionError('')
-    applyLocal()
-    Promise.resolve()
-      .then(action)
-      .catch((error) => {
-        setActionError(error instanceof Error ? error.message : '同步失败，请重试')
-        onFail?.()
-      })
-      .finally(() => {
-        writeLock.current = false
-        reloadShortcuts()
-      })
+    runWrite(applyLocal, action, reloadShortcuts, onFail)
   }
 
   // 本地临时记录：id 带 local- 前缀，云端返回后会被真实记录替换
@@ -410,10 +415,21 @@ export default function App() {
     ])
   }
 
+  // 与服务器一致：同名活动已经在进行中时，重复提交直接忽略，不生成新记录
+  function isAlreadyRunning(name: string) {
+    const open = records.find((row) => row.ended_at === null)
+    return open?.name === name
+  }
+
   function startRecord() {
     const name = activityName.trim()
     if (!name) {
       setActionError('请先输入活动名称')
+      return
+    }
+    if (isAlreadyRunning(name)) {
+      setActivityName('')
+      setActionError('')
       return
     }
     const previous = records
@@ -422,8 +438,9 @@ export default function App() {
       () => localSwitch(name, 'manual'),
       () => switchActivity(name, 'manual'),
       () => {
-        setRecords(previous)
         setActivityName(name)
+        // 只有没有其它排队写入时才整体回滚，避免覆盖别人的乐观记录
+        if (writePending.current === 0) setRecords(previous)
       },
     )
   }
@@ -433,11 +450,14 @@ export default function App() {
       setActivityName(shortcut.name)
       return
     }
+    if (isAlreadyRunning(shortcut.name)) return
     const previous = records
     syncRecords(
       () => localSwitch(shortcut.name, 'shortcut'),
       () => switchActivity(shortcut.name, 'shortcut'),
-      () => setRecords(previous),
+      () => {
+        if (writePending.current === 0) setRecords(previous)
+      },
     )
   }
 
@@ -486,7 +506,7 @@ export default function App() {
 
   // 长按 400ms 进入移动状态，移动过程中实时交换位置
   function handleChipPointerDown(shortcut: Shortcut, event: ReactPointerEvent<HTMLButtonElement>) {
-    if (managing || shortcut.is_default || writeLock.current) return
+    if (managing || shortcut.is_default || writePending.current > 0) return
     const element = event.currentTarget
     pressStart.current = { x: event.clientX, y: event.clientY, id: shortcut.id }
     clearPressTimer()
