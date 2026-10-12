@@ -81,6 +81,22 @@ describe('数据库核心规则', () => {
     expect(Number(rows[0].count)).toBeGreaterThanOrEqual(1)
   })
 
+  it('两个设备同时切换时只保留最后一条未结束记录', async () => {
+    await become(user1)
+    const races = await Promise.all([
+      query("select public.switch_activity('并发学习', 'manual')"),
+      query("select public.switch_activity('并发锻炼', 'shortcut')"),
+    ])
+    expect(races).toHaveLength(2)
+
+    const open = await query<{ name: string }>(`
+      select name from public.activities
+      where user_id = $1 and ended_at is null
+    `, [user1])
+    expect(open).toHaveLength(1)
+    expect(['并发学习', '并发锻炼']).toContain(open[0].name)
+  })
+
   it('数据库唯一索引阻止同一用户出现第二条未结束记录', async () => {
     await become(user1, 'postgres')
     await expect(query(`
