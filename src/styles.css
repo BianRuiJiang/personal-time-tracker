@@ -1,0 +1,137 @@
+:root {
+  color-scheme: light;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: #f6f4ef;
+  color: #1d231f;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 320px; }
+button, input { font: inherit; }
+
+.shell {
+  width: min(100%, 720px);
+  margin: 0 auto;
+  padding: 20px 16px calc(env(safe-area-inset-bottom) + 28px);
+}
+
+.app-header,
+.section-title,
+.record-list li,
+.account,
+.export-actions,
+.shortcut-add,
+.start-form {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.app-header {
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+h1, h2, h3, p { margin: 0; }
+h1 { font-size: 22px; }
+h2 { font-size: 18px; margin: 22px 0 12px; }
+h3 { font-size: 15px; }
+
+.account {
+  color: #525c54;
+  font-size: 14px;
+}
+
+.current-panel,
+.auth-panel {
+  background: #fffdf8;
+  border: 1px solid #ddd6c8;
+  border-radius: 8px;
+  padding: 18px;
+}
+
+.auth-panel { max-width: 420px; margin: 8vh auto 0; }
+.auth-panel form { display: grid; gap: 14px; margin-top: 18px; }
+label { display: grid; gap: 6px; font-size: 14px; color: #414a44; }
+
+input {
+  width: 100%;
+  min-height: 42px;
+  padding: 0 12px;
+  border: 1px solid #b9b3a5;
+  border-radius: 6px;
+  background: #fff;
+}
+
+button {
+  min-height: 40px;
+  border: 1px solid #6a736c;
+  border-radius: 6px;
+  background: transparent;
+  color: #222925;
+  padding: 0 13px;
+  cursor: pointer;
+}
+
+button:disabled { opacity: .45; cursor: not-allowed; }
+.primary { background: #166534; border-color: #166534; color: #fff; font-weight: 650; }
+.ghost { border-color: #c6c0b2; }
+.danger { color: #a12722; border-color: #d3aaa6; }
+.link { border: 0; min-height: 32px; padding: 0 4px; color: #215c74; }
+.icon { width: 40px; flex: 0 0 auto; }
+
+.start-form { margin-top: 16px; flex-wrap: wrap; }
+.start-form input { flex: 1 1 220px; }
+.start-form button { flex: 0 0 118px; }
+
+.shortcut-block { margin-top: 20px; }
+.shortcut-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 10px; }
+.shortcut-item { display: grid; }
+.shortcut {
+  width: 100%;
+  background: #edf3ec;
+  border-color: #b9c8ba;
+}
+.shortcut.custom { background: #f0f3f7; border-color: #adbccb; }
+.shortcut-item[style] { display: flex; }
+.shortcut-item:has(button.icon), .shortcut-item:has(input) {
+  display: flex;
+  align-items: center;
+}
+.shortcut-item input { min-width: 0; }
+.shortcut-add { margin-top: 10px; flex-wrap: wrap; }
+.shortcut-add input { flex: 1 1 180px; }
+
+.record-list { list-style: none; margin: 0; padding: 0; }
+.record-list li {
+  min-height: 54px;
+  justify-content: space-between;
+  border-bottom: 1px solid #d8d2c4;
+  padding: 9px 0;
+}
+.record-list strong { display: block; }
+.record-list span { color: #616a63; font-size: 13px; margin-left: 6px; }
+.record-meta { margin-left: auto; color: #4a534c; font-size: 14px; display: grid; text-align: right; }
+.record-meta span { margin-left: 0; }
+.date-label { align-items: center; display: flex; gap: 6px; margin-left: auto; }
+.date-label input { width: 152px; min-height: 36px; }
+
+.export-actions { flex-wrap: wrap; margin-bottom: 20px; }
+.muted { color: #616a63; }
+.error { color: #a12722; margin: 8px 0; }
+.notice { color: #73500f; margin-top: 10px; }
+
+@media (max-width: 520px) {
+  .shell { padding: 16px 12px 24px; }
+  .app-header { align-items: flex-start; flex-direction: column; }
+  .account { width: 100%; justify-content: space-between; }
+  .current-panel, .auth-panel { padding: 16px; }
+  .section-title { align-items: flex-start; flex-direction: column; }
+  .date-label { margin-left: 0; width: 100%; }
+  .date-label input { flex: 1; }
+  .start-form button { width: 100%; flex: 1 1 100%; }
+  .record-list li { align-items: flex-start; flex-wrap: wrap; }
+  .record-meta { margin-left: 0; text-align: left; }
+  .record-list .link { margin-left: auto; }
+  .export-actions button { flex: 1 1 calc(50% - 10px); }
+}
