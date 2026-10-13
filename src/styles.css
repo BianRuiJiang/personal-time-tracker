@@ -44,6 +44,15 @@ body {
   -webkit-tap-highlight-color: transparent;
 }
 
+.app-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100dvh;
+  color: var(--ink-2);
+  font-size: 14px;
+}
+
 button, input { font: inherit; letter-spacing: 0; }
 h1, h2, h3, p, ol, li { margin: 0; padding: 0; }
 
@@ -194,8 +203,8 @@ h1, h2, h3, p, ol, li { margin: 0; padding: 0; }
   align-items: center;
   justify-content: center;
   border: 0;
-  background: var(--danger);
-  color: #ffffff;
+  background: transparent;
+  color: var(--danger);
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;

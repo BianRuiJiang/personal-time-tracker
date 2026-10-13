@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import App from '../src/App'
 import type { Activity, Shortcut } from '../src/types'
+import { dayRange, statisticalDay } from '../src/lib/time'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
@@ -84,9 +85,13 @@ beforeEach(() => {
     shortcut({ id: 'default-id', name: '学习', is_default: true }),
     shortcut({ id: 'custom-id', name: '阅读', is_default: false }),
   ])
+  // 测试数据跟随当前统计日，避免真实日期跨过 05:00 后夹具失效。
+  const dayStart = dayRange(statisticalDay()).start
+  const oldStart = new Date(dayStart.getTime() + 60_000).toISOString()
+  const oldEnd = new Date(dayStart.getTime() + 120_000).toISOString()
   apiMocks.fetchActivitiesByOverlap.mockResolvedValue([
-    activity({ id: 'old-id', ended_at: '2026-10-11T22:00:00Z' }),
-    activity({ id: 'current-id', name: '写作', source: 'shortcut' }),
+    activity({ id: 'old-id', started_at: oldStart, ended_at: oldEnd, created_at: oldStart }),
+    activity({ id: 'current-id', name: '写作', source: 'shortcut', started_at: new Date().toISOString() }),
   ])
   apiMocks.switchActivity.mockResolvedValue(activity({ id: 'new-id', name: '阅读', source: 'shortcut' }))
   apiMocks.deleteActivity.mockResolvedValue(undefined)
@@ -433,7 +438,7 @@ describe('时间记录界面', () => {
     }
     // 时间信息用辅助蓝，危险操作才用红色
     expect(css).toMatch(/\.row-time \{[^}]*var\(--info-text\)/)
-    expect(css).toMatch(/\.row-delete \{[^}]*var\(--danger\)/)
+    expect(css).toMatch(/\.row-delete \{[^}]*color:\s*var\(--danger\)/)
   })
 
   it('时间两列固定宽度，保证每条记录时刻纵向对齐', () => {

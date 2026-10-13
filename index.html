@@ -22,7 +22,17 @@
     <title>个人时间记录</title>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <!-- JS 下载期间先显示稳定底色，避免主屏启动白屏 -->
+      <div class="app-loading">时间记录</div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', function () {
+          navigator.serviceWorker.register('./sw.js').catch(function () {})
+        })
+      }
+    </script>
   </body>
 </html>

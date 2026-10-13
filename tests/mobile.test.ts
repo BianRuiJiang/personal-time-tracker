@@ -57,9 +57,9 @@ describe('移动端适配要点', () => {
     expect(css).toContain('env(safe-area-inset-bottom)')
   })
 
-  it('记录行底色不是红色，红色只来自删除层', () => {
+  it('删除层没有红色底色，只保留红字', () => {
     expect(css).toMatch(/\.record-row \{[\s\S]{0,240}?background:\s*var\(--surface\)/)
-    expect(css).toMatch(/\.row-delete \{[\s\S]{0,240}?background:\s*var\(--danger\)/)
+    expect(css).toMatch(/\.row-delete \{[\s\S]{0,240}?background:\s*transparent/)
   })
 
   it('记录时间贴近右下角', () => {
@@ -75,5 +75,11 @@ describe('移动端适配要点', () => {
   it('左滑走合成层，拖动时关闭过渡避免卡顿', () => {
     expect(css).toMatch(/\.row-surface \{[\s\S]{0,600}?will-change:\s*transform/)
     expect(css).toMatch(/\.row-surface\.dragging \{[\s\S]{0,120}?transition:\s*none/)
+  })
+
+  it('主屏启动使用 Service Worker 缓存和静态加载壳', () => {
+    expect(html).toContain('navigator.serviceWorker.register')
+    expect(html).toContain('app-loading')
+    expect(existsSync(resolve(process.cwd(), 'public/sw.js'))).toBe(true)
   })
 })
