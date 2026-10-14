@@ -68,6 +68,22 @@ function SwipeRow({
   const lastX = useRef(0)
   const lastT = useRef(0)
   const speed = useRef(0)
+  const suppressClick = useRef(false)
+  const suppressTimer = useRef<number | null>(null)
+
+  // 左滑结束后浏览器可能补发一次 click；如果不拦截，刚展开的行会立即被收起。
+  function suppressNextClick() {
+    suppressClick.current = true
+    if (suppressTimer.current !== null) window.clearTimeout(suppressTimer.current)
+    suppressTimer.current = window.setTimeout(() => {
+      suppressClick.current = false
+      suppressTimer.current = null
+    }, 500)
+  }
+
+  useEffect(() => () => {
+    if (suppressTimer.current !== null) window.clearTimeout(suppressTimer.current)
+  }, [])
 
   function paint(value: number, animate: boolean) {
     const element = surfaceRef.current
@@ -129,6 +145,7 @@ function SwipeRow({
     active.current = false
     surfaceRef.current?.classList.remove('dragging')
     if (axis.current === 'x') {
+      suppressNextClick()
       paint(0, true)
       onClose()
     }
@@ -145,6 +162,8 @@ function SwipeRow({
       onClose()
       return
     }
+
+    suppressNextClick()
 
     // 滑过一半或快速轻扫都算展开
     const shouldOpen = offset.current <= -REVEAL / 2 || speed.current < -0.5
@@ -175,6 +194,14 @@ function SwipeRow({
         onPointerUp={finish}
         onPointerCancel={cancel}
         onClick={() => {
+          if (suppressClick.current) {
+            suppressClick.current = false
+            if (suppressTimer.current !== null) {
+              window.clearTimeout(suppressTimer.current)
+              suppressTimer.current = null
+            }
+            return
+          }
           if (offset.current !== 0) onClose()
         }}
       >
@@ -376,6 +403,23 @@ export default function App() {
     events.forEach((eventName) => window.addEventListener(eventName, recordTouch))
     return () => events.forEach((eventName) => window.removeEventListener(eventName, recordTouch))
   }, [session, records])
+
+  // 编辑弹窗打开时锁定页面滚动，并支持 Escape 关闭，避免移动端背景跟着弹窗滚动。
+  useEffect(() => {
+    if (!editingId) return
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') closeRecordEditor()
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.body.style.overflow = previousOverflow
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [editingId])
 
   const current = useMemo(
     () => records.find((record) => record.ended_at === null) ?? null,
@@ -950,11 +994,17 @@ export default function App() {
       </footer>
 
       {editingId && (
-        <div className="editor-overlay">
+        <div
+          className="editor-overlay"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) closeRecordEditor()
+          }}
+        >
           <form
             className="editor-panel"
             role="dialog"
             aria-label="修改记录"
+            aria-modal="true"
             onSubmit={saveRecordEdit}
           >
             <h2>修改记录</h2>
@@ -973,6 +1023,7 @@ export default function App() {
                 <input
                   aria-label="开始时间"
                   type="datetime-local"
+                  step={60}
                   value={editStart}
                   onChange={(event) => setEditStart(event.target.value)}
                 />
@@ -982,6 +1033,7 @@ export default function App() {
                 <input
                   aria-label="结束时间"
                   type="datetime-local"
+                  step={60}
                   value={editEnd}
                   placeholder="进行中可留空"
                   onChange={(event) => setEditEnd(event.target.value)}

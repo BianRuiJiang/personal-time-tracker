@@ -49,6 +49,12 @@ describe('移动端适配要点', () => {
   it('输入框字号不小于 16px，避免 iOS 聚焦时放大整页', () => {
     expect(css).toMatch(/\.composer-form input \{[\s\S]{0,400}?font-size:\s*16px/)
     expect(css).toMatch(/\.auth-panel input \{[\s\S]{0,400}?font-size:\s*16px/)
+    expect(css).toMatch(/\.editor-panel input \{[\s\S]{0,400}?font-size:\s*16px/)
+  })
+
+  it('编辑弹窗在小屏和软键盘下可滚动且不会撑出视口', () => {
+    expect(css).toMatch(/\.editor-panel \{[\s\S]{0,400}?max-height:\s*calc\(100dvh - 40px\)/)
+    expect(css).toMatch(/\.editor-panel \{[\s\S]{0,500}?overflow-y:\s*auto/)
   })
 
   it('底部记录区限高并可内部滚动，快捷键再多也挤不掉记录列表', () => {

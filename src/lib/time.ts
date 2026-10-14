@@ -66,9 +66,12 @@ export function beijingDateTimeInput(value: string | Date) {
 }
 
 export function beijingDateTimeInputToIso(value: string) {
-  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value)) return null
-  const date = new Date(`${value}:00+08:00`)
-  if (Number.isNaN(date.getTime()) || beijingDateTimeInput(date) !== value) return null
+  // 部分浏览器会在 datetime-local 中返回秒，统一兼容分钟和秒两种格式。
+  const match = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2})(?::(\d{2}))?$/.exec(value)
+  if (!match) return null
+  const minuteValue = match[1]
+  const date = new Date(`${minuteValue}:${match[2] ?? '00'}+08:00`)
+  if (Number.isNaN(date.getTime()) || beijingDateTimeInput(date) !== minuteValue) return null
   return date.toISOString()
 }
 

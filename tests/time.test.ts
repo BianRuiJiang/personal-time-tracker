@@ -62,6 +62,10 @@ describe('北京时间统计日', () => {
     expect(beijingDateTimeInputToIso('2026-10-12T10:00')).toBe('2026-10-12T02:00:00.000Z')
   })
 
+  it('兼容部分浏览器返回的秒级 datetime-local 值', () => {
+    expect(beijingDateTimeInputToIso('2026-10-12T10:00:30')).toBe('2026-10-12T02:00:30.000Z')
+  })
+
   it('界面时长统一为 xxhxxmin，不足 1 分钟按 1 分钟，不足 1 小时无前导 0', () => {
     expect(durationLabel('2026-10-12T00:00:00Z', '2026-10-12T01:20:00Z')).toBe('1h20min')
     expect(durationLabel('2026-10-12T00:00:00Z', '2026-10-12T00:15:00Z')).toBe('15min')

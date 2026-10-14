@@ -428,6 +428,20 @@ describe('时间记录界面', () => {
     expect(second.style.transform).toBe('translateX(-140px)')
   })
 
+  it('左滑松手后补发的 click 不会让记录自动回弹', async () => {
+    render(<App />)
+    await screen.findAllByText('写作')
+    const first = document.querySelector<HTMLElement>('.row-surface')!
+
+    fireEvent.pointerDown(first, { pointerId: 1, clientX: 300, clientY: 100 })
+    fireEvent.pointerMove(first, { pointerId: 1, clientX: 160, clientY: 100 })
+    fireEvent.pointerUp(first, { pointerId: 1, clientX: 160, clientY: 100 })
+
+    // iOS/桌面浏览器会在 pointerup 后补发 click，必须被这次手势吞掉。
+    fireEvent.click(first)
+    expect(first.style.transform).toBe('translateX(-140px)')
+  })
+
   it('左滑修改记录，保存后同步活动名称和起止时间', async () => {
     const user = userEvent.setup()
     render(<App />)
@@ -473,6 +487,22 @@ describe('时间记录界面', () => {
 
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('修改失败'))
     expect(screen.getByLabelText('修改活动名称')).toHaveValue('失败记录')
+  })
+
+  it('编辑弹窗支持 Escape 和点击遮罩关闭', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+    await screen.findAllByText('写作')
+
+    await user.click(screen.getAllByLabelText('修改')[0])
+    await screen.findByRole('dialog', { name: '修改记录' })
+    await user.keyboard('{Escape}')
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+
+    await user.click(screen.getAllByLabelText('修改')[0])
+    await screen.findByRole('dialog', { name: '修改记录' })
+    fireEvent.click(document.querySelector('.editor-overlay')!)
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
   })
 
   it('纵向滑动不触发左滑展开', async () => {
