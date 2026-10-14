@@ -129,7 +129,8 @@ describe('时间记录界面', () => {
       dayRange(shiftDate(statisticalDay(), -1)).start.toISOString(),
       dayRange(statisticalDay()).end.toISOString(),
     )
-    expect(screen.getByLabelText('未导出记录提醒')).toHaveTextContent('有 3 条记录')
+    // 当前进行中的记录未定型，不计入这次最终导出提醒。
+    expect(screen.getByLabelText('未导出记录提醒')).toHaveTextContent('有 2 条记录')
     expect(screen.getByRole('button', { name: '导出 CSV' })).toBeEnabled()
   })
 
@@ -156,7 +157,7 @@ describe('时间记录界面', () => {
     await waitFor(() => expect(apiMocks.switchActivity).toHaveBeenCalledWith('阅读', 'manual'))
     await waitFor(() => expect(createObjectURL).toHaveBeenCalledTimes(1))
     expect(confirm).toHaveBeenCalledOnce()
-    expect(window.localStorage.getItem(`time-tracker-exported-day-${userId}`)).toBe(statisticalDay())
+    expect(new Date(window.localStorage.getItem(`time-tracker-exported-at-${userId}`) ?? '').getTime()).not.toBeNaN()
 
     await user.type(screen.getByLabelText('活动名称'), '运动')
     await user.click(screen.getByRole('button', { name: '记录' }))
@@ -172,6 +173,21 @@ describe('时间记录界面', () => {
     expect(screen.queryByText(/已持续/)).not.toBeInTheDocument()
     expect(screen.queryByText(/正在进行/)).not.toBeInTheDocument()
     expect(apiMocks.fetchActivitiesByOverlap).toHaveBeenCalled()
+  })
+
+  it('按导出时间点判断未导出记录，同一天新增记录不会被跳过', async () => {
+    const exportedAt = new Date(Date.now() - 120_000)
+    const startedAt = new Date(Date.now() - 90_000)
+    const endedAt = new Date(Date.now() - 30_000)
+    window.localStorage.setItem(`time-tracker-exported-at-${userId}`, exportedAt.toISOString())
+    apiMocks.fetchAllActivities.mockResolvedValue([
+      activity({ id: 'after-export-id', started_at: startedAt.toISOString(), ended_at: endedAt.toISOString() }),
+    ])
+
+    render(<App />)
+    await waitFor(() => expect(screen.getByLabelText('未导出记录提醒')).toHaveTextContent('有 1 条记录'))
+
+    expect(screen.getByLabelText('未导出记录提醒')).toHaveTextContent('有 1 条记录')
   })
 
   it('每条记录同时显示开始时刻与总时长，精确到分且不出现秒与区间', async () => {

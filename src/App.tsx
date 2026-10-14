@@ -192,7 +192,7 @@ export default function App() {
   const [openId, setOpenId] = useState<string | null>(null)
   const [newShortcut, setNewShortcut] = useState('')
   const [now, setNow] = useState(() => new Date())
-  const [exportedDay, setExportedDay] = useState<string | null>(null)
+  const [exportedAt, setExportedAt] = useState<string | null>(null)
   const lastTouchRef = useRef(0)
   const displayRef = useRef<HTMLElement | null>(null)
   const declinedExportDay = useRef<string | null>(null)
@@ -270,15 +270,36 @@ export default function App() {
     })
   }, [loadHistoryRecords])
 
-  const exportStorageKey = useCallback((userId: string) => `time-tracker-exported-day-${userId}`, [])
+  const exportStorageKey = useCallback((userId: string) => `time-tracker-exported-at-${userId}`, [])
+  const legacyExportDayKey = useCallback((userId: string) => `time-tracker-exported-day-${userId}`, [])
 
   useEffect(() => {
     if (!session) {
-      setExportedDay(null)
+      setExportedAt(null)
       return
     }
-    setExportedDay(window.localStorage.getItem(exportStorageKey(session.user.id)))
-  }, [session, exportStorageKey])
+    const userId = session.user.id
+    const storedAt = window.localStorage.getItem(exportStorageKey(userId))
+    if (storedAt && !Number.isNaN(new Date(storedAt).getTime())) {
+      setExportedAt(new Date(storedAt).toISOString())
+      return
+    }
+
+    // 旧版本只保存导出日；迁移到时间点后，新导出的记录才不会被同一天的日期标记吞掉。
+    const legacyDay = window.localStorage.getItem(legacyExportDayKey(userId))
+    if (legacyDay && !Number.isNaN(new Date(legacyDay).getTime())) {
+      const marker = legacyDay === statisticalDay()
+        ? new Date()
+        : dayRange(legacyDay).end
+      const markerIso = marker.toISOString()
+      window.localStorage.setItem(exportStorageKey(userId), markerIso)
+      window.localStorage.removeItem(legacyExportDayKey(userId))
+      setExportedAt(markerIso)
+      return
+    }
+
+    setExportedAt(null)
+  }, [session, exportStorageKey, legacyExportDayKey])
 
   useEffect(() => {
     if (!session) {
@@ -368,13 +389,15 @@ export default function App() {
     [records, statDay, now],
   )
   const pendingExportCount = useMemo(() => {
-    const cutoff = exportedDay ? dayRange(exportedDay).end.getTime() : 0
+    const cutoff = exportedAt ? new Date(exportedAt).getTime() : 0
     return historyRecords.filter((record) => {
-      const end = record.ended_at ? new Date(record.ended_at).getTime() : now.getTime()
+      // 进行中的记录还没定型，导出后也不标记为最终已导出。
+      if (!record.ended_at) return false
+      const end = new Date(record.ended_at).getTime()
       return new Date(record.started_at).getTime() < now.getTime() && end > cutoff
     }).length
-  }, [exportedDay, historyRecords, now])
-  const pendingExportVisible = pendingExportCount > 0 && exportedDay !== statDay
+  }, [exportedAt, historyRecords, now])
+  const pendingExportVisible = pendingExportCount > 0
 
   // 记录成功后把列表滚到底部，保证刚新增的那条在可视范围内
   useEffect(() => {
@@ -476,19 +499,22 @@ export default function App() {
   }
 
   function pendingExportRows(endOverride?: string) {
-    const cutoff = exportedDay ? dayRange(exportedDay).end.getTime() : 0
+    const cutoff = exportedAt ? new Date(exportedAt).getTime() : 0
     const boundary = endOverride ?? now.toISOString()
     return historyRecords.filter((record) => {
-      const rawEnd = record.ended_at ?? boundary
+      if (!record.ended_at) return false
+      const rawEnd = record.ended_at
       return new Date(record.started_at) < new Date(boundary) &&
         new Date(rawEnd).getTime() > cutoff
     })
   }
 
-  function markExported(day: string) {
+  function markExported(marker: Date = new Date()) {
     if (!session) return
-    window.localStorage.setItem(exportStorageKey(session.user.id), day)
-    setExportedDay(day)
+    const markerIso = marker.toISOString()
+    window.localStorage.setItem(exportStorageKey(session.user.id), markerIso)
+    window.localStorage.removeItem(legacyExportDayKey(session.user.id))
+    setExportedAt(markerIso)
     declinedExportDay.current = null
   }
 
@@ -500,12 +526,12 @@ export default function App() {
     const lastDay = days[days.length - 1]
     const label = firstDay === lastDay ? firstDay : `${firstDay}_to_${lastDay}`
     exportCsv(rows, label)
-    markExported(statDay)
+    markExported()
   }
 
   // 跨统计日后第一次记录才弹窗；取消后靠顶部提醒兜底，避免每记一条都打断。
   function confirmPendingExport() {
-    if (exportedDay === statDay || declinedExportDay.current === statDay) return false
+    if (declinedExportDay.current === statDay) return false
     if (writePending.current > 0 || pendingExportRows().length === 0) return false
     const confirmed = window.confirm(`距上次导出已有 ${pendingExportRows().length} 条记录。是否先导出？`)
     if (!confirmed) declinedExportDay.current = statDay
@@ -737,7 +763,7 @@ export default function App() {
       {pendingExportVisible && (
         <section className="export-reminder" aria-label="未导出记录提醒">
           <p>
-            {exportedDay ? '上次导出后' : '目前'}有 {pendingExportCount} 条记录，数据仍保留在云端。
+            {exportedAt ? '上次导出后' : '目前'}有 {pendingExportCount} 条记录，数据仍保留在云端。
           </p>
           <button type="button" onClick={() => exportPendingRecords()}>
             导出 CSV
