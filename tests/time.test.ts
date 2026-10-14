@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { dayRange, durationLabel, durationText, shiftDate, splitForStatDay, statisticalDay } from '../src/lib/time'
+import {
+  beijingDateTimeInputToIso,
+  dayRange,
+  durationLabel,
+  durationText,
+  shiftDate,
+  splitForStatDay,
+  statisticalDay,
+} from '../src/lib/time'
 import { buildJson, buildMarkdown } from '../src/lib/export'
 import type { Activity } from '../src/types'
 
@@ -46,6 +54,12 @@ describe('北京时间统计日', () => {
 
   it('耗时输出为时分秒', () => {
     expect(durationText('2026-10-12T00:00:00Z', '2026-10-12T01:02:03Z')).toBe('01:02:03')
+  })
+
+  it('修改记录拒绝浏览器不会产生的非法日期', () => {
+    expect(beijingDateTimeInputToIso('2026-02-31T10:00')).toBeNull()
+    expect(beijingDateTimeInputToIso('2026-13-01T10:00')).toBeNull()
+    expect(beijingDateTimeInputToIso('2026-10-12T10:00')).toBe('2026-10-12T02:00:00.000Z')
   })
 
   it('界面时长统一为 xxhxxmin，不足 1 分钟按 1 分钟，不足 1 小时无前导 0', () => {

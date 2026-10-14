@@ -19,8 +19,12 @@ function download(content: string, filename: string, type: string) {
   const link = document.createElement('a')
   link.href = URL.createObjectURL(blob)
   link.download = filename
+  link.style.display = 'none'
+  document.body.appendChild(link)
   link.click()
-  URL.revokeObjectURL(link.href)
+  link.remove()
+  // 部分浏览器点击后仍会异步读取 URL，立即释放会导致下载失败。
+  window.setTimeout(() => URL.revokeObjectURL(link.href), 1000)
 }
 
 export function exportJson(records: Activity[], dayLabel: string) {

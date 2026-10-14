@@ -19,3 +19,11 @@ export interface Shortcut {
   is_default: boolean
   created_at: string
 }
+
+export interface RecordCycle {
+  id: string
+  user_id: string
+  started_at: string
+  ended_at: string | null
+  created_at: string
+}

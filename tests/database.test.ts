@@ -36,6 +36,7 @@ beforeAll(async () => {
   `)
   await db.exec(productionSql)
   await db.exec(readFileSync(resolve(process.cwd(), 'supabase/migrations/002_activity_update.sql'), 'utf8'))
+  await db.exec(readFileSync(resolve(process.cwd(), 'supabase/migrations/003_record_cycles.sql'), 'utf8'))
   await db.exec(`
     insert into auth.users (id, email) values ('${user1}', 'one@example.com'), ('${user2}', 'two@example.com');
   `)
@@ -47,7 +48,9 @@ describe('数据库核心规则', () => {
     const shortcuts = await query<{ user_id: string; name: string }>(
       'select user_id, name from public.shortcuts order by user_id, sort_order',
     )
+    const cycles = await query<{ user_id: string }>('select user_id from public.record_cycles order by user_id')
     expect(states).toHaveLength(2)
+    expect(cycles).toHaveLength(2)
     expect(shortcuts.map((row) => row.name).sort((left, right) =>
       ['学习', '休息', '工作'].indexOf(left) - ['学习', '休息', '工作'].indexOf(right),
     )).toEqual(['学习', '学习', '休息', '休息', '工作', '工作'])
@@ -239,5 +242,34 @@ describe('数据库核心规则', () => {
       [ownRows[0].id, '越权修改'],
     )
     expect(foreignResult.affectedRows).toBe(0)
+  })
+
+  it('重置开启新周期，旧周期和活动记录永久保留', async () => {
+    await become(user1)
+    const before = await query<{ count: string }>(
+      'select count(*)::text as count from public.activities where user_id = $1',
+      [user1],
+    )
+    await query("select public.switch_activity('重置前记录', 'manual')")
+
+    const reset = await query<{ id: string; started_at: string }>('select * from public.reset_record_cycle()')
+    const cycles = await query<{ id: string; ended_at: string | null }>(
+      'select id, ended_at from public.record_cycles where user_id = $1 order by started_at',
+      [user1],
+    )
+    const after = await query<{ count: string }>(
+      'select count(*)::text as count from public.activities where user_id = $1',
+      [user1],
+    )
+    const openActivities = await query<{ id: string }>(
+      'select id from public.activities where user_id = $1 and ended_at is null',
+      [user1],
+    )
+
+    expect(reset).toHaveLength(1)
+    expect(cycles.filter((item) => item.ended_at === null)).toEqual([{ id: reset[0].id, ended_at: null }])
+    expect(cycles.some((item) => item.ended_at !== null)).toBe(true)
+    expect(Number(after[0].count)).toBe(Number(before[0].count) + 1)
+    expect(openActivities).toEqual([])
   })
 })

@@ -2,7 +2,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import App from '../src/App'
-import type { Activity, Shortcut } from '../src/types'
+import type { Activity, RecordCycle, Shortcut } from '../src/types'
 import { dayRange, shiftDate, statisticalDay } from '../src/lib/time'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
@@ -18,10 +18,10 @@ const apiMocks = vi.hoisted(() => ({
   deleteShortcut: vi.fn(),
   reorderShortcuts: vi.fn(),
   fetchActivitiesByOverlap: vi.fn(),
-  fetchAllActivities: vi.fn(),
-  deleteActivities: vi.fn(),
+  fetchCurrentCycle: vi.fn(),
+  fetchCycleActivities: vi.fn(),
+  resetRecordCycle: vi.fn(),
   deleteActivity: vi.fn(),
-  deleteAllActivities: vi.fn(),
   updateActivity: vi.fn(),
 }))
 
@@ -84,6 +84,18 @@ function shortcut(partial: Partial<Shortcut>): Shortcut {
   }
 }
 
+function cycle(partial: Partial<RecordCycle> = {}): RecordCycle {
+  const startedAt = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+  return {
+    id: 'cycle-id',
+    user_id: userId,
+    started_at: startedAt,
+    ended_at: null,
+    created_at: startedAt,
+    ...partial,
+  }
+}
+
 function historicalActivity(dayOffset: number, partial: Partial<Activity>): Activity {
   const day = dayRange(shiftDate(statisticalDay(), dayOffset))
   const started = new Date(day.start.getTime() + 60_000).toISOString()
@@ -109,14 +121,14 @@ beforeEach(() => {
     activity({ id: 'old-id', started_at: oldStart, ended_at: oldEnd, created_at: oldStart }),
     activity({ id: 'current-id', name: '写作', source: 'shortcut', started_at: new Date().toISOString() }),
   ])
-  apiMocks.fetchAllActivities.mockResolvedValue([])
-  apiMocks.deleteActivities.mockResolvedValue(undefined)
+  apiMocks.fetchCurrentCycle.mockResolvedValue(cycle())
+  apiMocks.fetchCycleActivities.mockResolvedValue([])
+  apiMocks.resetRecordCycle.mockResolvedValue(cycle({ id: 'next-cycle-id', started_at: new Date().toISOString() }))
   apiMocks.switchActivity.mockResolvedValue(activity({ id: 'new-id', name: '阅读', source: 'shortcut' }))
   apiMocks.updateActivity.mockImplementation((_id: string, values: Partial<Activity>) =>
     Promise.resolve(activity(values)),
   )
   apiMocks.deleteActivity.mockResolvedValue(undefined)
-  apiMocks.deleteAllActivities.mockResolvedValue(undefined)
   apiMocks.reorderShortcuts.mockResolvedValue(undefined)
   apiMocks.renameShortcut.mockResolvedValue(undefined)
   apiMocks.deleteShortcut.mockResolvedValue(undefined)
@@ -129,7 +141,7 @@ describe('时间记录界面', () => {
     apiMocks.fetchActivitiesByOverlap.mockResolvedValue([
       activity({ id: 'current-id', name: '写作', source: 'shortcut', started_at: new Date().toISOString() }),
     ])
-    apiMocks.fetchAllActivities.mockResolvedValue([
+    apiMocks.fetchCycleActivities.mockResolvedValue([
       historicalActivity(-3, { name: '整理' }),
       historicalActivity(-2, { name: '复盘' }),
       activity({ id: 'current-id', name: '写作', source: 'shortcut', started_at: new Date().toISOString() }),
@@ -141,6 +153,7 @@ describe('时间记录界面', () => {
     expect(apiMocks.fetchActivitiesByOverlap).toHaveBeenCalledWith(
       dayRange(shiftDate(statisticalDay(), -1)).start.toISOString(),
       dayRange(statisticalDay()).end.toISOString(),
+      expect.any(String),
     )
     expect(screen.queryByLabelText('未导出记录提醒')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '导出并清空' })).not.toBeInTheDocument()
@@ -151,7 +164,7 @@ describe('时间记录界面', () => {
     apiMocks.fetchActivitiesByOverlap.mockResolvedValue([
       activity({ id: 'current-id', name: '写作', source: 'shortcut', started_at: new Date().toISOString() }),
     ])
-    apiMocks.fetchAllActivities.mockResolvedValue([
+    apiMocks.fetchCycleActivities.mockResolvedValue([
       historicalActivity(-3, { name: '整理' }),
       historicalActivity(-2, { name: '复盘' }),
       activity({ id: 'current-id', name: '写作', source: 'shortcut', started_at: new Date().toISOString() }),
@@ -167,7 +180,7 @@ describe('时间记录界面', () => {
     await user.click(screen.getByRole('button', { name: '记录' }))
 
     await waitFor(() => expect(apiMocks.switchActivity).toHaveBeenCalledWith('阅读', 'manual'))
-    expect(apiMocks.deleteActivities).not.toHaveBeenCalled()
+    expect(apiMocks.resetRecordCycle).not.toHaveBeenCalled()
     expect(exportMocks.exportMarkdown).not.toHaveBeenCalled()
     expect(confirm).not.toHaveBeenCalled()
 
@@ -490,9 +503,9 @@ describe('时间记录界面', () => {
     expect(screen.getByLabelText('活动名称')).toHaveValue('写周报')
   })
 
-  it('重置先下载全部记录 Markdown，再清空所有记录', async () => {
+  it('重置先下载当前周期 Markdown，再开启新周期且不删除云端记录', async () => {
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
-    apiMocks.fetchAllActivities.mockResolvedValue([
+    apiMocks.fetchCycleActivities.mockResolvedValue([
       historicalActivity(-3, { name: '整理' }),
       historicalActivity(-2, { name: '复盘' }),
     ])
@@ -504,7 +517,8 @@ describe('时间记录界面', () => {
     await user.click(screen.getByRole('button', { name: '重置' }))
 
     expect(confirm).not.toHaveBeenCalled()
-    await waitFor(() => expect(apiMocks.deleteAllActivities).toHaveBeenCalledWith(userId))
+    await waitFor(() => expect(apiMocks.resetRecordCycle).toHaveBeenCalledTimes(1))
+    expect(apiMocks.deleteActivity).not.toHaveBeenCalled()
     expect(exportMocks.exportMarkdown).toHaveBeenCalledTimes(1)
     const [exportedRows] = exportMocks.exportMarkdown.mock.calls[0]
     expect(exportedRows.map((row: Activity) => row.name)).toEqual(

@@ -1,5 +1,5 @@
 import { redirectUrl, supabase } from './supabase'
-import type { Activity, Shortcut } from '../types'
+import type { Activity, RecordCycle, Shortcut } from '../types'
 
 // crypto.randomUUID 在旧浏览器下可能缺失，做一层兜底
 function messageId() {
@@ -72,15 +72,29 @@ export async function deleteShortcut(id: string) {
 }
 
 export async function reorderShortcuts(items: Shortcut[]) {
-  await Promise.all(items.map((item, index) =>
+  const results = await Promise.all(items.map((item, index) =>
     supabase.from('shortcuts').update({ sort_order: index + 1 }).eq('id', item.id),
   ))
+  const failure = results.find((result) => result.error)
+  if (failure?.error) throw new Error(failure.error.message)
 }
 
-export async function fetchActivitiesByOverlap(startIso: string, endIso: string) {
+export async function fetchCurrentCycle() {
+  const { data, error } = await supabase
+    .from('record_cycles')
+    .select('*')
+    .is('ended_at', null)
+    .maybeSingle<RecordCycle>()
+  if (error) throw new Error(error.message)
+  if (!data) throw new Error('当前记录周期不存在，请刷新后重试')
+  return data
+}
+
+export async function fetchActivitiesByOverlap(startIso: string, endIso: string, cycleStartIso: string) {
   const { data, error } = await supabase
     .from('activities')
     .select('*')
+    .gte('started_at', cycleStartIso)
     .lt('started_at', endIso)
     .or(`ended_at.is.null,ended_at.gte.${startIso}`)
     .order('started_at')
@@ -89,12 +103,28 @@ export async function fetchActivitiesByOverlap(startIso: string, endIso: string)
   return data
 }
 
-export async function fetchAllActivities() {
+export async function fetchCycleActivities(cycleStartIso: string) {
+  const pageSize = 1000
+  const rows: Activity[] = []
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await supabase
+      .from('activities')
+      .select('*')
+      .gte('started_at', cycleStartIso)
+      .order('started_at')
+      .range(from, from + pageSize - 1)
+      .returns<Activity[]>()
+    if (error) throw new Error(error.message)
+    rows.push(...data)
+    if (data.length < pageSize) break
+  }
+  return rows
+}
+
+export async function resetRecordCycle() {
   const { data, error } = await supabase
-    .from('activities')
-    .select('*')
-    .order('started_at')
-    .returns<Activity[]>()
+    .rpc('reset_record_cycle')
+    .single<RecordCycle>()
   if (error) throw new Error(error.message)
   return data
 }
@@ -113,20 +143,8 @@ export async function updateActivity(
   return data
 }
 
-export async function deleteActivities(ids: string[]) {
-  const { error } = await supabase
-    .from('activities')
-    .delete()
-    .in('id', ids)
-  if (error) throw new Error(error.message)
-}
-
 export async function deleteActivity(id: string) {
   const { error } = await supabase.from('activities').delete().eq('id', id)
   if (error) throw new Error(error.message)
 }
 
-export async function deleteAllActivities(userId: string) {
-  const { error } = await supabase.from('activities').delete().eq('user_id', userId)
-  if (error) throw new Error(error.message)
-}

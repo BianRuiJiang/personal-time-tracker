@@ -6,13 +6,14 @@ import { configError, supabase } from './lib/supabase'
 import {
   addShortcut,
   deleteActivity,
-  deleteAllActivities,
   deleteShortcut,
-  fetchAllActivities,
   fetchActivitiesByOverlap,
+  fetchCurrentCycle,
+  fetchCycleActivities,
   fetchShortcuts,
   renameShortcut,
   reorderShortcuts,
+  resetRecordCycle,
   switchActivity,
   touchInteraction,
   updateActivity,
@@ -197,6 +198,7 @@ export default function App() {
   const [activityName, setActivityName] = useState('')
   const [actionError, setActionError] = useState('')
   const [interactionError, setInteractionError] = useState('')
+  const [syncing, setSyncing] = useState(false)
   const [managing, setManaging] = useState(false)
   const [openId, setOpenId] = useState<string | null>(null)
   const [newShortcut, setNewShortcut] = useState('')
@@ -214,6 +216,8 @@ export default function App() {
   // pending > 0 期间不应用服务器快照，避免冲掉仍在排队的乐观记录。
   const writeQueue = useRef<Promise<unknown>>(Promise.resolve())
   const writePending = useRef(0)
+  const cycleRequest = useRef(0)
+  const shortcutsRequest = useRef(0)
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const [draftOrder, setDraftOrder] = useState<Shortcut[] | null>(null)
   const [dragDelta, setDragDelta] = useState({ x: 0, y: 0 })
@@ -244,31 +248,37 @@ export default function App() {
     return () => authListener?.subscription.unsubscribe()
   }, [])
 
-  const loadRecords = useCallback(async (day: string) => {
+  const loadCycleData = useCallback(async (day: string) => {
     if (!session) return
+    const requestId = ++cycleRequest.current
+    const cycle = await fetchCurrentCycle()
+    if (requestId !== cycleRequest.current) return
     // 多查一个统计日：跨过 05:00 后进行中的记录仍能正常展示。
     const { start } = dayRange(shiftDate(day, -1))
     const { end } = dayRange(day)
-    const rows = await fetchActivitiesByOverlap(start.toISOString(), end.toISOString())
-    setRecords(rows)
+    const [visibleRows, cycleRows] = await Promise.all([
+      fetchActivitiesByOverlap(start.toISOString(), end.toISOString(), cycle.started_at),
+      fetchCycleActivities(cycle.started_at),
+    ])
+    if (requestId !== cycleRequest.current) return
+    setRecords(visibleRows)
+    setHistoryRecords(cycleRows)
   }, [session])
 
   const loadShortcuts = useCallback(async () => {
     if (!session) return
-    setShortcuts(await fetchShortcuts())
-  }, [session])
-
-  const loadHistoryRecords = useCallback(async () => {
-    if (!session) return
-    setHistoryRecords(await fetchAllActivities())
+    const requestId = ++shortcutsRequest.current
+    const rows = await fetchShortcuts()
+    if (requestId !== shortcutsRequest.current) return
+    setShortcuts(rows)
   }, [session])
 
   // 统一的刷新入口：永远不产生未捕获的 Promise 拒绝
-  const reloadRecords = useCallback((day: string) => {
-    loadRecords(day).catch((error) => {
+  const reloadCycleData = useCallback((day: string) => {
+    loadCycleData(day).catch((error) => {
       setActionError(error instanceof Error ? error.message : '刷新记录失败，请稍后重试')
     })
-  }, [loadRecords])
+  }, [loadCycleData])
 
   const reloadShortcuts = useCallback(() => {
     loadShortcuts().catch((error) => {
@@ -276,22 +286,20 @@ export default function App() {
     })
   }, [loadShortcuts])
 
-  const reloadHistoryRecords = useCallback(() => {
-    loadHistoryRecords().catch((error) => {
-      setActionError(error instanceof Error ? error.message : '刷新导出数据失败，请稍后重试')
-    })
-  }, [loadHistoryRecords])
-
   useEffect(() => {
     if (!session) {
+      cycleRequest.current += 1
+      shortcutsRequest.current += 1
       setShortcuts([])
       setRecords([])
+      setHistoryRecords([])
+      setEditingId(null)
+      setOpenId(null)
       return
     }
     reloadShortcuts()
-    reloadRecords(statDay)
-    reloadHistoryRecords()
-  }, [session, statDay, reloadShortcuts, reloadRecords, reloadHistoryRecords])
+    reloadCycleData(statDay)
+  }, [session, statDay, reloadShortcuts, reloadCycleData])
 
   useEffect(() => {
     if (!session) return
@@ -305,8 +313,16 @@ export default function App() {
       }, () => {
         // 本地写入排队中时跳过，避免实时事件把乐观记录冲掉
         if (writePending.current > 0) return
-        reloadRecords(statDay)
-        reloadHistoryRecords()
+        reloadCycleData(statDay)
+      })
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'record_cycles',
+        filter: `user_id=eq.${userId}`,
+      }, () => {
+        if (writePending.current > 0) return
+        reloadCycleData(statDay)
       })
       .on('postgres_changes', {
         event: '*',
@@ -322,7 +338,7 @@ export default function App() {
     return () => {
       void supabase.removeChannel(channel)
     }
-  }, [session, statDay, reloadRecords, reloadHistoryRecords, reloadShortcuts])
+  }, [session, statDay, reloadCycleData, reloadShortcuts])
 
   // 30 秒刷新一次即可，界面只展示到分钟，不出现秒数跳动。
   useEffect(() => {
@@ -396,6 +412,7 @@ export default function App() {
     // 先同步反映到界面，用户点了就立刻能看到
     applyLocal()
     writePending.current += 1
+    setSyncing(true)
     let failed = false
     let result: T | undefined
 
@@ -411,10 +428,13 @@ export default function App() {
       })
       .finally(() => {
         writePending.current -= 1
-        if (failed) onFail?.()
+        const queueIdle = writePending.current === 0
+        if (queueIdle) setSyncing(false)
+        // 队列中还有后续写入时先不回滚；排空后的服务器刷新会恢复真实状态。
+        if (failed && queueIdle) onFail?.()
         if (!failed) onResult?.(result as T)
         // 队列排空后才以服务器状态为准
-        if (writePending.current === 0) refresh()
+        if (queueIdle) refresh()
       })
 
     writeQueue.current = writeQueue.current.then(task, task)
@@ -427,8 +447,7 @@ export default function App() {
     onResult?: (result: T) => void,
   ) {
     runWrite(applyLocal, action, () => {
-      reloadRecords(statDay)
-      reloadHistoryRecords()
+      reloadCycleData(statDay)
     }, onFail, onResult)
   }
 
@@ -474,7 +493,7 @@ export default function App() {
     for (const row of [...historyRecords, ...records]) {
       if (!byId.has(row.id)) byId.set(row.id, row)
     }
-    return [...byId.values()]
+    return [...byId.values()].sort((left, right) => left.started_at.localeCompare(right.started_at))
   }
 
   function exportResetRows(rows: Activity[]) {
@@ -561,8 +580,7 @@ export default function App() {
       () => switchActivity(name, 'manual'),
       () => {
         setActivityName(name)
-        // 只有没有其它排队写入时才整体回滚，避免覆盖别人的乐观记录
-        if (writePending.current === 0) setRecords(previous)
+        setRecords(previous)
       },
     )
   }
@@ -578,7 +596,7 @@ export default function App() {
       () => localSwitch(shortcut.name, 'shortcut'),
       () => switchActivity(shortcut.name, 'shortcut'),
       () => {
-        if (writePending.current === 0) setRecords(previous)
+        setRecords(previous)
       },
     )
   }
@@ -593,19 +611,27 @@ export default function App() {
     )
   }
 
-  // 重置：先在用户手势里同步下载 Markdown，再清空；删除失败时本地会回滚。
+  // 重置：先下载当前周期 Markdown，再在数据库开启新周期；旧记录永久保留。
   function resetAll() {
     if (!session) return
+    if (writePending.current > 0) {
+      setActionError('记录正在同步，请稍后再重置')
+      return
+    }
     const rows = resetExportRows()
+    if (rows.length === 0) {
+      setActionError('当前周期没有可导出的记录')
+      return
+    }
     const previousRecords = records
     const previousHistory = historyRecords
-    if (rows.length > 0) exportResetRows(rows)
+    exportResetRows(rows)
     syncRecords(
       () => {
         setRecords([])
         setHistoryRecords([])
       },
-      () => deleteAllActivities(session.user.id),
+      () => resetRecordCycle(),
       () => {
         setRecords(previousRecords)
         setHistoryRecords(previousHistory)
@@ -744,8 +770,8 @@ export default function App() {
             type="button"
             className="reset-btn"
             onClick={resetAll}
-            disabled={records.length === 0 && historyRecords.length === 0}
-            title="先导出 Markdown，再清空全部记录"
+            disabled={syncing || (records.length === 0 && historyRecords.length === 0)}
+            title="先导出当前周期 Markdown，再开始新周期"
           >
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />

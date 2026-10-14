@@ -11,11 +11,11 @@
 1. 用邮箱和密码注册或登录。
 2. 在底部输入框写下正在做的事，点「记录」；或点自定义快捷按钮直接切换。
 3. 中间列表按天展示记录，每条显示开始时刻与总时长。当前进行中的那条有绿色左条与描边。
-4. 右上角「重置」会先下载全部记录的 Markdown，再清空云端记录；手机和电脑都保留这个入口。
+4. 右上角「重置」会先下载当前周期全部记录的 Markdown，再在数据库开启新周期；手机和电脑都保留这个入口。
 5. 左滑单条记录露出「修改」和「删除」，可修正活动名称、开始时间和结束时间。
 6. 长按自定义快捷按钮可像移动桌面图标一样拖动排序。
-7. 记录周期从 05:00 到次日 05:00。跨周期不自动清空，需要手动点「重置」完成导出和清空。
-8. 「重置」不弹确认框；Markdown 会在清空前同步下载，避免误触或网络失败导致记录丢失。
+7. 记录周期从 05:00 到次日 05:00。跨周期不自动清空，需要手动点「重置」完成导出并开启新周期。
+8. 每个周期在数据库单独保存，重置不会删除旧活动记录；界面只展示当前周期。
 
 写入策略：先在本地立即渲染，再同步到云端。同步失败会回滚到服务器状态并提示，不做离线队列。
 
@@ -24,7 +24,7 @@
 统一使用 `Asia/Shanghai`。
 
 - 统计日从每天 05:00 到次日 05:00。
-- 跨过统计日不会自动删除、清空或提醒；导出和清空统一由「重置」手动触发。
+- 跨过统计日不会自动删除、清空或提醒；导出和开启新周期统一由「重置」手动触发。
 - 每天 23:00 自动结束当前活动并开始「睡觉」，次日 07:00 结束睡眠。
 - 睡眠期间可以从界面直接记录新活动，切换时「睡觉」会在切换时刻自动结束。
 - 连续 120 分钟无交互自动结束当前活动，结束时间按最后一次交互加 120 分钟计算。
@@ -46,7 +46,7 @@ npm run build
 
 已完成（当前仓库状态）：
 
-1. Supabase 数据库已应用 [`supabase/migrations/001_init.sql`](supabase/migrations/001_init.sql) 和 [`supabase/migrations/002_activity_update.sql`](supabase/migrations/002_activity_update.sql)。002 用于开放记录修改权限，换环境部署前必须执行。
+1. Supabase 数据库已应用 [`001_init.sql`](supabase/migrations/001_init.sql)、[`002_activity_update.sql`](supabase/migrations/002_activity_update.sql) 和 [`003_record_cycles.sql`](supabase/migrations/003_record_cycles.sql)。003 用于保留每个周期和全部历史记录，换环境部署前必须执行。
 2. Supabase **Authentication > URL Configuration** 已设置为 `https://bianruijiang.github.io/personal-time-tracker/`。
 3. GitHub **Actions > Variables** 已配置 `VITE_SUPABASE_URL` 与 `VITE_SUPABASE_PUBLISHABLE_KEY`。
 4. GitHub **Pages > Source** 已设为 GitHub Actions。
@@ -62,6 +62,6 @@ npm run build
 ## 测试
 
 - `tests/database.test.ts`：切换活动、同名独立保存、并发唯一约束、自动暂停幂等、睡眠幂等、用户数据隔离、历史删除与记录修改权限（PGlite 真实执行迁移 SQL）。
-- `tests/ui.test.tsx`：当前活动展示、时间格式、默认/自定义按钮、左滑修改/删除、重置导出并清空、长按拖动排序、乐观写入与失败回滚、响应式与色板规则。
+- `tests/ui.test.tsx`：当前活动展示、时间格式、默认/自定义按钮、左滑修改/删除、重置导出并开启新周期、长按拖动排序、乐观写入与失败回滚、响应式与色板规则。
 - `tests/time.test.ts`：统计日边界、跨日睡眠拆分、Markdown/JSON 导出、时长格式。
 - CI 额外执行 `tsc --noEmit` 与生产构建。

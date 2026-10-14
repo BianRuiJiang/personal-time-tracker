@@ -68,7 +68,8 @@ export function beijingDateTimeInput(value: string | Date) {
 export function beijingDateTimeInputToIso(value: string) {
   if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value)) return null
   const date = new Date(`${value}:00+08:00`)
-  return Number.isNaN(date.getTime()) ? null : date.toISOString()
+  if (Number.isNaN(date.getTime()) || beijingDateTimeInput(date) !== value) return null
+  return date.toISOString()
 }
 
 export function beijingMinute(value: string | Date) {
