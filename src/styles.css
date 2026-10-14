@@ -135,6 +135,50 @@ h1, h2, h3, p, ol, li { margin: 0; padding: 0; }
   color: #a8aea7;
 }
 
+/* 跨日提醒：只提示导出，不清理任何记录 */
+.export-reminder {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 20px 12px;
+}
+
+.export-reminder p {
+  min-width: 0;
+  color: var(--ink-2);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.export-reminder strong {
+  color: var(--warn);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.export-reminder button {
+  flex: none;
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid rgba(193, 139, 79, .34);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--warn);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background .16s var(--ease), color .16s var(--ease);
+}
+
+.export-reminder button:hover {
+  background: rgba(193, 139, 79, .1);
+  color: #a5713b;
+}
+
+.export-reminder button:active { transform: scale(.97); }
+
 /* 分组抬头 */
 .history-head {
   flex: 0 0 auto;
@@ -565,6 +609,7 @@ label { display: grid; gap: 6px; font-size: 13px; color: var(--ink-2); }
   .current { padding: 10px 16px 20px; }
   .current-name { font-size: 32px; }
   .history-head { padding: 0 16px 10px; }
+  .export-reminder { padding: 0 16px 10px; }
   .display { padding: 0 16px 14px; }
   .alerts { padding: 0 16px 8px; }
   .composer { padding: 12px 16px calc(env(safe-area-inset-bottom) + 14px); }

@@ -8,6 +8,7 @@ import {
   deleteActivity,
   deleteAllActivities,
   deleteShortcut,
+  fetchAllActivities,
   fetchActivitiesByOverlap,
   fetchShortcuts,
   renameShortcut,
@@ -21,6 +22,7 @@ import {
   durationLabel,
   splitForStatDay,
   statisticalDay,
+  shiftDate,
 } from './lib/time'
 import { exportCsv } from './lib/export'
 import type { Activity, Shortcut } from './types'
@@ -181,6 +183,7 @@ export default function App() {
   const [authReady, setAuthReady] = useState(false)
   const [shortcuts, setShortcuts] = useState<Shortcut[]>([])
   const [records, setRecords] = useState<Activity[]>([])
+  const [historyRecords, setHistoryRecords] = useState<Activity[]>([])
   const [statDay, setStatDay] = useState(() => statisticalDay())
   const [activityName, setActivityName] = useState('')
   const [actionError, setActionError] = useState('')
@@ -189,8 +192,10 @@ export default function App() {
   const [openId, setOpenId] = useState<string | null>(null)
   const [newShortcut, setNewShortcut] = useState('')
   const [now, setNow] = useState(() => new Date())
+  const [exportedDay, setExportedDay] = useState<string | null>(null)
   const lastTouchRef = useRef(0)
   const displayRef = useRef<HTMLElement | null>(null)
+  const declinedExportDay = useRef<string | null>(null)
   // 新增记录后需要把列表滚到底，让刚记的那条可见
   const scrollPending = useRef(false)
   // 写操作串行排队：快速连点不会丢操作，也不会和刷新互相覆盖。
@@ -229,7 +234,9 @@ export default function App() {
 
   const loadRecords = useCallback(async (day: string) => {
     if (!session) return
-    const { start, end } = dayRange(day)
+    // 多查一个统计日：跨过 05:00 后进行中的记录仍能正常展示。
+    const { start } = dayRange(shiftDate(day, -1))
+    const { end } = dayRange(day)
     const rows = await fetchActivitiesByOverlap(start.toISOString(), end.toISOString())
     setRecords(rows)
   }, [session])
@@ -237,6 +244,11 @@ export default function App() {
   const loadShortcuts = useCallback(async () => {
     if (!session) return
     setShortcuts(await fetchShortcuts())
+  }, [session])
+
+  const loadHistoryRecords = useCallback(async () => {
+    if (!session) return
+    setHistoryRecords(await fetchAllActivities())
   }, [session])
 
   // 统一的刷新入口：永远不产生未捕获的 Promise 拒绝
@@ -252,6 +264,22 @@ export default function App() {
     })
   }, [loadShortcuts])
 
+  const reloadHistoryRecords = useCallback(() => {
+    loadHistoryRecords().catch((error) => {
+      setActionError(error instanceof Error ? error.message : '刷新导出数据失败，请稍后重试')
+    })
+  }, [loadHistoryRecords])
+
+  const exportStorageKey = useCallback((userId: string) => `time-tracker-exported-day-${userId}`, [])
+
+  useEffect(() => {
+    if (!session) {
+      setExportedDay(null)
+      return
+    }
+    setExportedDay(window.localStorage.getItem(exportStorageKey(session.user.id)))
+  }, [session, exportStorageKey])
+
   useEffect(() => {
     if (!session) {
       setShortcuts([])
@@ -260,7 +288,8 @@ export default function App() {
     }
     reloadShortcuts()
     reloadRecords(statDay)
-  }, [session, statDay, reloadShortcuts, reloadRecords])
+    reloadHistoryRecords()
+  }, [session, statDay, reloadShortcuts, reloadRecords, reloadHistoryRecords])
 
   useEffect(() => {
     if (!session) return
@@ -275,6 +304,7 @@ export default function App() {
         // 本地写入排队中时跳过，避免实时事件把乐观记录冲掉
         if (writePending.current > 0) return
         reloadRecords(statDay)
+        reloadHistoryRecords()
       })
       .on('postgres_changes', {
         event: '*',
@@ -290,7 +320,7 @@ export default function App() {
     return () => {
       void supabase.removeChannel(channel)
     }
-  }, [session, statDay, reloadRecords, reloadShortcuts])
+  }, [session, statDay, reloadRecords, reloadHistoryRecords, reloadShortcuts])
 
   // 30 秒刷新一次即可，界面只展示到分钟，不出现秒数跳动。
   useEffect(() => {
@@ -337,6 +367,14 @@ export default function App() {
     () => splitForStatDay(records, statDay, now),
     [records, statDay, now],
   )
+  const pendingExportCount = useMemo(() => {
+    const cutoff = exportedDay ? dayRange(exportedDay).end.getTime() : 0
+    return historyRecords.filter((record) => {
+      const end = record.ended_at ? new Date(record.ended_at).getTime() : now.getTime()
+      return new Date(record.started_at).getTime() < now.getTime() && end > cutoff
+    }).length
+  }, [exportedDay, historyRecords, now])
+  const pendingExportVisible = pendingExportCount > 0 && exportedDay !== statDay
 
   // 记录成功后把列表滚到底部，保证刚新增的那条在可视范围内
   useEffect(() => {
@@ -354,21 +392,26 @@ export default function App() {
 
   // 写入策略：先在本地渲染，再同步云端。成功后用服务器数据替换本地临时数据；
   // 失败则回滚到服务器状态并提示，不做离线队列。
-  function runWrite(
+  function runWrite<T>(
     applyLocal: () => void,
-    action: () => Promise<unknown>,
+    action: () => Promise<T>,
     refresh: () => void,
     onFail?: () => void,
+    onResult?: (result: T) => void,
   ) {
     setActionError('')
     // 先同步反映到界面，用户点了就立刻能看到
     applyLocal()
     writePending.current += 1
     let failed = false
+    let result: T | undefined
 
     // 排队执行：所有请求按点击顺序串行落到服务器，不会互相插队
     const task = () => Promise.resolve()
       .then(action)
+      .then((value) => {
+        result = value
+      })
       .catch((error) => {
         failed = true
         setActionError(error instanceof Error ? error.message : '同步失败，请重试')
@@ -376,6 +419,7 @@ export default function App() {
       .finally(() => {
         writePending.current -= 1
         if (failed) onFail?.()
+        if (!failed) onResult?.(result as T)
         // 队列排空后才以服务器状态为准
         if (writePending.current === 0) refresh()
       })
@@ -383,8 +427,16 @@ export default function App() {
     writeQueue.current = writeQueue.current.then(task, task)
   }
 
-  function syncRecords(applyLocal: () => void, action: () => Promise<unknown>, onFail?: () => void) {
-    runWrite(applyLocal, action, () => reloadRecords(statDay), onFail)
+  function syncRecords<T>(
+    applyLocal: () => void,
+    action: () => Promise<T>,
+    onFail?: () => void,
+    onResult?: (result: T) => void,
+  ) {
+    runWrite(applyLocal, action, () => {
+      reloadRecords(statDay)
+      reloadHistoryRecords()
+    }, onFail, onResult)
   }
 
   function syncShortcuts(applyLocal: () => void, action: () => Promise<unknown>, onFail?: () => void) {
@@ -409,16 +461,55 @@ export default function App() {
   function localSwitch(name: string, source: 'manual' | 'shortcut') {
     const optimistic = optimisticRecord(name, source)
     scrollPending.current = true
-    setRecords((rows) => [
+    const closeOpenAndAppend = (rows: Activity[]) => [
       ...rows.map((row) => (row.ended_at === null ? { ...row, ended_at: optimistic.started_at } : row)),
       optimistic,
-    ])
+    ]
+    setRecords(closeOpenAndAppend)
+    setHistoryRecords(closeOpenAndAppend)
   }
 
   // 与服务器一致：同名活动已经在进行中时，重复提交直接忽略，不生成新记录
   function isAlreadyRunning(name: string) {
     const open = records.find((row) => row.ended_at === null)
     return open?.name === name
+  }
+
+  function pendingExportRows(endOverride?: string) {
+    const cutoff = exportedDay ? dayRange(exportedDay).end.getTime() : 0
+    const boundary = endOverride ?? now.toISOString()
+    return historyRecords.filter((record) => {
+      const rawEnd = record.ended_at ?? boundary
+      return new Date(record.started_at) < new Date(boundary) &&
+        new Date(rawEnd).getTime() > cutoff
+    })
+  }
+
+  function markExported(day: string) {
+    if (!session) return
+    window.localStorage.setItem(exportStorageKey(session.user.id), day)
+    setExportedDay(day)
+    declinedExportDay.current = null
+  }
+
+  function exportPendingRecords(endOverride?: string) {
+    const rows = pendingExportRows(endOverride)
+    if (rows.length === 0) return
+    const days = rows.map((record) => statisticalDay(new Date(record.started_at))).sort()
+    const firstDay = days[0]
+    const lastDay = days[days.length - 1]
+    const label = firstDay === lastDay ? firstDay : `${firstDay}_to_${lastDay}`
+    exportCsv(rows, label)
+    markExported(statDay)
+  }
+
+  // 跨统计日后第一次记录才弹窗；取消后靠顶部提醒兜底，避免每记一条都打断。
+  function confirmPendingExport() {
+    if (exportedDay === statDay || declinedExportDay.current === statDay) return false
+    if (writePending.current > 0 || pendingExportRows().length === 0) return false
+    const confirmed = window.confirm(`距上次导出已有 ${pendingExportRows().length} 条记录。是否先导出？`)
+    if (!confirmed) declinedExportDay.current = statDay
+    return confirmed
   }
 
   function startRecord() {
@@ -432,6 +523,7 @@ export default function App() {
       setActionError('')
       return
     }
+    const shouldExportPending = confirmPendingExport()
     const previous = records
     setActivityName('')
     syncRecords(
@@ -442,6 +534,9 @@ export default function App() {
         // 只有没有其它排队写入时才整体回滚，避免覆盖别人的乐观记录
         if (writePending.current === 0) setRecords(previous)
       },
+      shouldExportPending
+        ? (result) => exportPendingRecords(result.started_at)
+        : undefined,
     )
   }
 
@@ -451,6 +546,7 @@ export default function App() {
       return
     }
     if (isAlreadyRunning(shortcut.name)) return
+    const shouldExportPending = confirmPendingExport()
     const previous = records
     syncRecords(
       () => localSwitch(shortcut.name, 'shortcut'),
@@ -458,6 +554,9 @@ export default function App() {
       () => {
         if (writePending.current === 0) setRecords(previous)
       },
+      shouldExportPending
+        ? (result) => exportPendingRecords(result.started_at)
+        : undefined,
     )
   }
 
@@ -634,6 +733,17 @@ export default function App() {
           <h2 className="current-name idle">没有进行中的活动</h2>
         )}
       </section>
+
+      {pendingExportVisible && (
+        <section className="export-reminder" aria-label="未导出记录提醒">
+          <p>
+            {exportedDay ? '上次导出后' : '目前'}有 {pendingExportCount} 条记录，数据仍保留在云端。
+          </p>
+          <button type="button" onClick={() => exportPendingRecords()}>
+            导出 CSV
+          </button>
+        </section>
+      )}
 
       <div className="history-head">
         <h3>今日记录</h3>

@@ -3,7 +3,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import App from '../src/App'
 import type { Activity, Shortcut } from '../src/types'
-import { dayRange, statisticalDay } from '../src/lib/time'
+import { dayRange, shiftDate, statisticalDay } from '../src/lib/time'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
@@ -76,8 +76,16 @@ function shortcut(partial: Partial<Shortcut>): Shortcut {
   }
 }
 
+function historicalActivity(dayOffset: number, partial: Partial<Activity>): Activity {
+  const day = dayRange(shiftDate(statisticalDay(), dayOffset))
+  const started = new Date(day.start.getTime() + 60_000).toISOString()
+  const ended = new Date(day.start.getTime() + 120_000).toISOString()
+  return activity({ id: `history-${dayOffset}`, started_at: started, ended_at: ended, created_at: started, ...partial })
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
+  window.localStorage.clear()
   Object.defineProperty(URL, 'createObjectURL', { value: vi.fn(() => 'blob:mock'), writable: true })
   Object.defineProperty(URL, 'revokeObjectURL', { value: vi.fn(), writable: true })
   supabaseMocks.getSession.mockResolvedValue({ data: { session } })
@@ -93,6 +101,7 @@ beforeEach(() => {
     activity({ id: 'old-id', started_at: oldStart, ended_at: oldEnd, created_at: oldStart }),
     activity({ id: 'current-id', name: '写作', source: 'shortcut', started_at: new Date().toISOString() }),
   ])
+  apiMocks.fetchAllActivities.mockResolvedValue([])
   apiMocks.switchActivity.mockResolvedValue(activity({ id: 'new-id', name: '阅读', source: 'shortcut' }))
   apiMocks.deleteActivity.mockResolvedValue(undefined)
   apiMocks.deleteAllActivities.mockResolvedValue(undefined)
@@ -103,6 +112,60 @@ beforeEach(() => {
 })
 
 describe('时间记录界面', () => {
+  it('隔几天没有记录时，仍提醒导出全部未导出记录', async () => {
+    apiMocks.fetchActivitiesByOverlap.mockResolvedValue([
+      activity({ id: 'current-id', name: '写作', source: 'shortcut', started_at: new Date().toISOString() }),
+    ])
+    apiMocks.fetchAllActivities.mockResolvedValue([
+      historicalActivity(-3, { name: '整理' }),
+      historicalActivity(-2, { name: '复盘' }),
+      activity({ id: 'current-id', name: '写作', source: 'shortcut', started_at: new Date().toISOString() }),
+    ])
+
+    render(<App />)
+    await screen.findAllByText('写作')
+
+    expect(apiMocks.fetchActivitiesByOverlap).toHaveBeenCalledWith(
+      dayRange(shiftDate(statisticalDay(), -1)).start.toISOString(),
+      dayRange(statisticalDay()).end.toISOString(),
+    )
+    expect(screen.getByLabelText('未导出记录提醒')).toHaveTextContent('有 3 条记录')
+    expect(screen.getByRole('button', { name: '导出 CSV' })).toBeEnabled()
+  })
+
+  it('隔几天记录时提示导出上次以后的数据，同一统计日不重复提示', async () => {
+    apiMocks.fetchActivitiesByOverlap.mockResolvedValue([
+      activity({ id: 'current-id', name: '写作', source: 'shortcut', started_at: new Date().toISOString() }),
+    ])
+    apiMocks.fetchAllActivities.mockResolvedValue([
+      historicalActivity(-3, { name: '整理' }),
+      historicalActivity(-2, { name: '复盘' }),
+      activity({ id: 'current-id', name: '写作', source: 'shortcut', started_at: new Date().toISOString() }),
+    ])
+    apiMocks.switchActivity.mockResolvedValue(activity({ id: 'new-id', name: '阅读', source: 'manual' }))
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    const createObjectURL = URL.createObjectURL as unknown as ReturnType<typeof vi.fn>
+    const user = userEvent.setup()
+
+    render(<App />)
+    await screen.findAllByText('写作')
+
+    await user.type(screen.getByLabelText('活动名称'), '阅读')
+    await user.click(screen.getByRole('button', { name: '记录' }))
+
+    await waitFor(() => expect(apiMocks.switchActivity).toHaveBeenCalledWith('阅读', 'manual'))
+    await waitFor(() => expect(createObjectURL).toHaveBeenCalledTimes(1))
+    expect(confirm).toHaveBeenCalledOnce()
+    expect(window.localStorage.getItem(`time-tracker-exported-day-${userId}`)).toBe(statisticalDay())
+
+    await user.type(screen.getByLabelText('活动名称'), '运动')
+    await user.click(screen.getByRole('button', { name: '记录' }))
+    await waitFor(() => expect(apiMocks.switchActivity).toHaveBeenCalledWith('运动', 'manual'))
+
+    expect(createObjectURL).toHaveBeenCalledTimes(1)
+    expect(confirm).toHaveBeenCalledOnce()
+  })
+
   it('只显示服务器确认的当前活动，不再显示秒或持续时长', async () => {
     render(<App />)
     expect((await screen.findAllByText('写作')).length).toBeGreaterThan(0)
