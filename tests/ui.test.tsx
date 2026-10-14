@@ -19,8 +19,10 @@ const apiMocks = vi.hoisted(() => ({
   reorderShortcuts: vi.fn(),
   fetchActivitiesByOverlap: vi.fn(),
   fetchAllActivities: vi.fn(),
+  deleteActivities: vi.fn(),
   deleteActivity: vi.fn(),
   deleteAllActivities: vi.fn(),
+  updateActivity: vi.fn(),
 }))
 
 const supabaseMocks = vi.hoisted(() => {
@@ -102,7 +104,11 @@ beforeEach(() => {
     activity({ id: 'current-id', name: '写作', source: 'shortcut', started_at: new Date().toISOString() }),
   ])
   apiMocks.fetchAllActivities.mockResolvedValue([])
+  apiMocks.deleteActivities.mockResolvedValue(undefined)
   apiMocks.switchActivity.mockResolvedValue(activity({ id: 'new-id', name: '阅读', source: 'shortcut' }))
+  apiMocks.updateActivity.mockImplementation((_id: string, values: Partial<Activity>) =>
+    Promise.resolve(activity(values)),
+  )
   apiMocks.deleteActivity.mockResolvedValue(undefined)
   apiMocks.deleteAllActivities.mockResolvedValue(undefined)
   apiMocks.reorderShortcuts.mockResolvedValue(undefined)
@@ -129,9 +135,9 @@ describe('时间记录界面', () => {
       dayRange(shiftDate(statisticalDay(), -1)).start.toISOString(),
       dayRange(statisticalDay()).end.toISOString(),
     )
-    // 当前进行中的记录未定型，不计入这次最终导出提醒。
-    expect(screen.getByLabelText('未导出记录提醒')).toHaveTextContent('有 2 条记录')
-    expect(screen.getByRole('button', { name: '导出 Markdown' })).toBeEnabled()
+    // 当前进行中的记录未定型；两个历史周期的已结束记录等待导出并清空。
+    expect(screen.getByLabelText('未导出记录提醒')).toHaveTextContent('上个周期有 2 条记录未导出')
+    expect(screen.getByRole('button', { name: '导出并清空' })).toBeEnabled()
   })
 
   it('隔几天记录时提示导出上次以后的数据，同一统计日不重复提示', async () => {
@@ -155,6 +161,7 @@ describe('时间记录界面', () => {
     await user.click(screen.getByRole('button', { name: '记录' }))
 
     await waitFor(() => expect(apiMocks.switchActivity).toHaveBeenCalledWith('阅读', 'manual'))
+    await waitFor(() => expect(apiMocks.deleteActivities).toHaveBeenCalledWith(['history--3', 'history--2']))
     await waitFor(() => expect(createObjectURL).toHaveBeenCalledTimes(1))
     expect(confirm).toHaveBeenCalledOnce()
     expect(new Date(window.localStorage.getItem(`time-tracker-exported-at-${userId}`) ?? '').getTime()).not.toBeNaN()
@@ -360,8 +367,8 @@ describe('时间记录界面', () => {
     const first = document.querySelector<HTMLElement>('.row-surface')!
 
     fireEvent.pointerDown(first, { pointerId: 1, clientX: 300, clientY: 100 })
-    fireEvent.pointerMove(first, { pointerId: 1, clientX: 200, clientY: 100 })
-    expect(first.style.transform).toBe('translateX(-84px)')
+    fireEvent.pointerMove(first, { pointerId: 1, clientX: 160, clientY: 100 })
+    expect(first.style.transform).toBe('translateX(-140px)')
 
     fireEvent.pointerCancel(first, { pointerId: 1, clientX: 200, clientY: 100 })
     expect(first.style.transform).toBe('translateX(0px)')
@@ -399,23 +406,70 @@ describe('时间记录界面', () => {
 
     const [first, second] = surfaces
     fireEvent.pointerDown(first, { pointerId: 1, clientX: 300, clientY: 100 })
-    fireEvent.pointerMove(first, { pointerId: 1, clientX: 200, clientY: 100 })
+    fireEvent.pointerMove(first, { pointerId: 1, clientX: 160, clientY: 100 })
 
     // 拖动期间只改样式，并带上 dragging 类（去掉过渡，避免与手势打架）
     expect(first.classList.contains('dragging')).toBe(true)
-    expect(first.style.transform).toBe('translateX(-84px)')
+    expect(first.style.transform).toBe('translateX(-140px)')
 
     fireEvent.pointerUp(first, { pointerId: 1, clientX: 200, clientY: 100 })
     expect(first.classList.contains('dragging')).toBe(false)
-    expect(first.style.transform).toBe('translateX(-84px)')
+    expect(first.style.transform).toBe('translateX(-140px)')
 
     // 展开第二条时，第一条自动收起
     fireEvent.pointerDown(second, { pointerId: 2, clientX: 300, clientY: 100 })
-    fireEvent.pointerMove(second, { pointerId: 2, clientX: 190, clientY: 100 })
-    fireEvent.pointerUp(second, { pointerId: 2, clientX: 190, clientY: 100 })
+    fireEvent.pointerMove(second, { pointerId: 2, clientX: 160, clientY: 100 })
+    fireEvent.pointerUp(second, { pointerId: 2, clientX: 160, clientY: 100 })
 
     await waitFor(() => expect(first.style.transform).toBe('translateX(0px)'))
-    expect(second.style.transform).toBe('translateX(-84px)')
+    expect(second.style.transform).toBe('translateX(-140px)')
+  })
+
+  it('左滑修改记录，保存后同步活动名称和起止时间', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+    await screen.findAllByText('写作')
+    const first = document.querySelector<HTMLElement>('.row-surface')!
+
+    fireEvent.pointerDown(first, { pointerId: 1, clientX: 300, clientY: 100 })
+    fireEvent.pointerMove(first, { pointerId: 1, clientX: 150, clientY: 100 })
+    fireEvent.pointerUp(first, { pointerId: 1, clientX: 150, clientY: 100 })
+
+    await user.click(screen.getAllByLabelText('修改')[0])
+    await screen.findByRole('dialog', { name: '修改记录' })
+    const nameInput = screen.getByLabelText('修改活动名称')
+    const startInput = screen.getByLabelText('开始时间')
+    const endInput = screen.getByLabelText('结束时间')
+    await user.clear(nameInput)
+    await user.type(nameInput, '改后的学习')
+    await user.clear(startInput)
+    await user.type(startInput, '2026-01-01T08:00')
+    await user.clear(endInput)
+    await user.type(endInput, '2026-01-01T09:30')
+    await user.click(screen.getByRole('button', { name: '保存' }))
+
+    await waitFor(() => expect(apiMocks.updateActivity).toHaveBeenCalledWith('old-id', {
+      name: '改后的学习',
+      started_at: '2026-01-01T00:00:00.000Z',
+      ended_at: '2026-01-01T01:30:00.000Z',
+    }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+  })
+
+  it('修改失败时保留编辑弹窗并提示错误', async () => {
+    apiMocks.updateActivity.mockRejectedValue(new Error('修改失败'))
+    const user = userEvent.setup()
+    render(<App />)
+    await screen.findAllByText('写作')
+
+    await user.click(screen.getAllByLabelText('修改')[0])
+    await screen.findByRole('dialog', { name: '修改记录' })
+    await user.clear(screen.getByLabelText('修改活动名称'))
+    await user.type(screen.getByLabelText('修改活动名称'), '失败记录')
+    await user.click(screen.getByRole('button', { name: '保存' }))
+
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('修改失败'))
+    expect(screen.getByLabelText('修改活动名称')).toHaveValue('失败记录')
   })
 
   it('纵向滑动不触发左滑展开', async () => {

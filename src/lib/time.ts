@@ -50,6 +50,27 @@ export function beijingDateTime(value: string | Date | null) {
   return fullFormatter.format(new Date(value)).replace('T', ' ')
 }
 
+export function beijingDateTimeInput(value: string | Date) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(new Date(value))
+  const get = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((part) => part.type === type)?.value ?? '00'
+  return `${get('year')}-${get('month')}-${get('day')}T${get('hour')}:${get('minute')}`
+}
+
+export function beijingDateTimeInputToIso(value: string) {
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value)) return null
+  const date = new Date(`${value}:00+08:00`)
+  return Number.isNaN(date.getTime()) ? null : date.toISOString()
+}
+
 export function beijingMinute(value: string | Date) {
   return minuteFormatter.format(new Date(value))
 }

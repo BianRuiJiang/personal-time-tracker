@@ -82,6 +82,13 @@ h1, h2, h3, p, ol, li { margin: 0; padding: 0; }
   color: var(--ink-2);
 }
 
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.export-btn,
 .reset-btn {
   display: inline-flex;
   align-items: center;
@@ -101,6 +108,10 @@ h1, h2, h3, p, ol, li { margin: 0; padding: 0; }
 .reset-btn:hover:not(:disabled) { background: rgba(184, 92, 86, .1); color: var(--danger); }
 .reset-btn:active:not(:disabled) { transform: scale(.97); }
 .reset-btn:disabled { opacity: .4; cursor: not-allowed; }
+
+.export-btn:hover:not(:disabled) { background: rgba(100, 134, 163, .1); color: var(--info-text); }
+.export-btn:active:not(:disabled) { transform: scale(.97); }
+.export-btn:disabled { opacity: .4; cursor: not-allowed; }
 
 /* 当前活动：整页视觉重心 */
 .current {
@@ -236,22 +247,33 @@ h1, h2, h3, p, ol, li { margin: 0; padding: 0; }
   background: var(--surface);
 }
 
-.row-delete {
+.row-actions {
   position: absolute;
   top: 0;
   right: 0;
   bottom: 0;
-  width: 84px;
-  border-radius: 0 8px 8px 0;
+  display: flex;
+  width: 140px;
+  background: transparent;
+}
+
+.row-actions button {
+  flex: 1 1 0;
   display: flex;
   align-items: center;
   justify-content: center;
   border: 0;
   background: transparent;
-  color: var(--danger);
+  color: var(--info-text);
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
+}
+
+.row-delete {
+  width: 70px;
+  border-radius: 0 8px 8px 0;
+  color: var(--danger);
 }
 
 .row-surface {
@@ -523,6 +545,79 @@ h1, h2, h3, p, ol, li { margin: 0; padding: 0; }
   cursor: pointer;
 }
 
+/* ---------- 记录修改 ---------- */
+.editor-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(48, 54, 48, .24);
+}
+
+.editor-panel {
+  width: min(100%, 380px);
+  display: grid;
+  gap: 14px;
+  padding: 22px;
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 0 18px 42px rgba(48, 54, 48, .2);
+}
+
+.editor-panel h2 {
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.editor-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.editor-panel input {
+  width: 100%;
+  height: 42px;
+  margin-top: 6px;
+  padding: 0 12px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: var(--fill);
+  color: var(--ink);
+  font-size: 16px;
+}
+
+.editor-panel input:focus {
+  outline: none;
+  background: var(--surface);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(100, 133, 107, .18);
+}
+
+.editor-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.editor-actions button:first-child {
+  height: 40px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--fill);
+  color: var(--ink-2);
+  cursor: pointer;
+}
+
+.editor-actions .primary {
+  height: 40px;
+  padding: 0 18px;
+}
+
 /* ---------- 登录页 ---------- */
 .shell {
   width: min(100%, 400px);
@@ -605,6 +700,7 @@ label { display: grid; gap: 6px; font-size: 13px; color: var(--ink-2); }
 @media (max-width: 560px) {
   /* 手机端不提供重置入口，避免误触清空全部记录 */
   .reset-btn { display: none; }
+  .export-btn { display: inline-flex; }
   .app-header { padding: calc(env(safe-area-inset-top) + 16px) 16px 8px; }
   .current { padding: 10px 16px 20px; }
   .current-name { font-size: 32px; }
@@ -614,4 +710,6 @@ label { display: grid; gap: 6px; font-size: 13px; color: var(--ink-2); }
   .alerts { padding: 0 16px 8px; }
   .composer { padding: 12px 16px calc(env(safe-area-inset-bottom) + 14px); }
   .composer-form button { padding: 0 18px; }
+  .editor-grid { grid-template-columns: 1fr; }
+  .editor-overlay { padding: 16px; }
 }

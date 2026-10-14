@@ -99,6 +99,28 @@ export async function fetchAllActivities() {
   return data
 }
 
+export async function updateActivity(
+  id: string,
+  values: Pick<Activity, 'name' | 'started_at' | 'ended_at'>,
+) {
+  const { data, error } = await supabase
+    .from('activities')
+    .update(values)
+    .eq('id', id)
+    .select()
+    .single<Activity>()
+  if (error) throw new Error(error.message)
+  return data
+}
+
+export async function deleteActivities(ids: string[]) {
+  const { error } = await supabase
+    .from('activities')
+    .delete()
+    .in('id', ids)
+  if (error) throw new Error(error.message)
+}
+
 export async function deleteActivity(id: string) {
   const { error } = await supabase.from('activities').delete().eq('id', id)
   if (error) throw new Error(error.message)

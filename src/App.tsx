@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { PointerEvent as ReactPointerEvent } from 'react'
+import type { FormEvent as ReactFormEvent, PointerEvent as ReactPointerEvent } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { AuthForm } from './components/AuthForm'
 import { configError, supabase } from './lib/supabase'
 import {
   addShortcut,
+  deleteActivities,
   deleteActivity,
   deleteAllActivities,
   deleteShortcut,
@@ -15,9 +16,12 @@ import {
   reorderShortcuts,
   switchActivity,
   touchInteraction,
+  updateActivity,
 } from './lib/api'
 import {
   beijingClockLabel,
+  beijingDateTimeInput,
+  beijingDateTimeInputToIso,
   dayRange,
   durationLabel,
   splitForStatDay,
@@ -27,7 +31,7 @@ import {
 import { exportMarkdown } from './lib/export'
 import type { Activity, Shortcut } from './types'
 
-const REVEAL = 84
+const REVEAL = 140
 
 // crypto.randomUUID 在旧浏览器或非安全上下文下可能不存在，做一层兜底
 function newId() {
@@ -45,13 +49,14 @@ interface RowProps {
   open: boolean
   onOpen: () => void
   onClose: () => void
+  onEdit: () => void
   onDelete: () => void
 }
 
 // 左滑露出删除。
 // 拖动过程直接改 DOM 的 transform，不触发 React 渲染 —— 这是之前卡顿的根因。
 function SwipeRow({
-  name, timeText, durationText, ongoing, open, onOpen, onClose, onDelete,
+  name, timeText, durationText, ongoing, open, onOpen, onClose, onEdit, onDelete,
 }: RowProps) {
   const surfaceRef = useRef<HTMLDivElement | null>(null)
   const offset = useRef(0)
@@ -154,9 +159,14 @@ function SwipeRow({
 
   return (
     <li className={ongoing ? 'record-row ongoing' : 'record-row'}>
-      <button type="button" className="row-delete" aria-label="删除" onClick={onDelete}>
-        删除
-      </button>
+      <div className="row-actions">
+        <button type="button" aria-label="修改" onClick={onEdit}>
+          修改
+        </button>
+        <button type="button" className="row-delete" aria-label="删除" onClick={onDelete}>
+          删除
+        </button>
+      </div>
       <div
         ref={surfaceRef}
         className="row-surface"
@@ -193,6 +203,11 @@ export default function App() {
   const [newShortcut, setNewShortcut] = useState('')
   const [now, setNow] = useState(() => new Date())
   const [exportedAt, setExportedAt] = useState<string | null>(null)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editName, setEditName] = useState('')
+  const [editStart, setEditStart] = useState('')
+  const [editEnd, setEditEnd] = useState('')
+  const [editingError, setEditingError] = useState('')
   const lastTouchRef = useRef(0)
   const displayRef = useRef<HTMLElement | null>(null)
   const declinedExportDay = useRef<string | null>(null)
@@ -390,14 +405,26 @@ export default function App() {
   )
   const pendingExportCount = useMemo(() => {
     const cutoff = exportedAt ? new Date(exportedAt).getTime() : 0
+    const cycleStart = dayRange(statDay).start.getTime()
     return historyRecords.filter((record) => {
       // 进行中的记录还没定型，导出后也不标记为最终已导出。
       if (!record.ended_at) return false
       const end = new Date(record.ended_at).getTime()
-      return new Date(record.started_at).getTime() < now.getTime() && end > cutoff
+      return new Date(record.started_at).getTime() < now.getTime() &&
+        end > cutoff &&
+        end >= cycleStart
     }).length
-  }, [exportedAt, historyRecords, now])
-  const pendingExportVisible = pendingExportCount > 0
+  }, [exportedAt, historyRecords, now, statDay])
+  const dueExportCount = useMemo(() => {
+    const cutoff = exportedAt ? new Date(exportedAt).getTime() : 0
+    const cycleStart = dayRange(statDay).start.getTime()
+    return historyRecords.filter((record) => {
+      if (!record.ended_at) return false
+      const end = new Date(record.ended_at).getTime()
+      return end > cutoff && end < cycleStart
+    }).length
+  }, [exportedAt, historyRecords, statDay])
+  const pendingExportVisible = pendingExportCount > 0 || dueExportCount > 0
 
   // 记录成功后把列表滚到底部，保证刚新增的那条在可视范围内
   useEffect(() => {
@@ -509,6 +536,16 @@ export default function App() {
     })
   }
 
+  function dueExportRows() {
+    const cutoff = exportedAt ? new Date(exportedAt).getTime() : 0
+    const cycleStart = dayRange(statDay).start.getTime()
+    return historyRecords.filter((record) => {
+      if (!record.ended_at) return false
+      const end = new Date(record.ended_at).getTime()
+      return end > cutoff && end < cycleStart
+    })
+  }
+
   function markExported(marker: Date = new Date()) {
     if (!session) return
     const markerIso = marker.toISOString()
@@ -518,24 +555,110 @@ export default function App() {
     declinedExportDay.current = null
   }
 
-  function exportPendingRecords(endOverride?: string) {
-    const rows = pendingExportRows(endOverride)
+  function exportActivityRows(rows: Activity[], mark = true) {
     if (rows.length === 0) return
     const days = rows.map((record) => statisticalDay(new Date(record.started_at))).sort()
     const firstDay = days[0]
     const lastDay = days[days.length - 1]
     const label = firstDay === lastDay ? firstDay : `${firstDay}_to_${lastDay}`
     exportMarkdown(rows, label)
-    markExported()
+    if (mark) markExported()
   }
 
-  // 跨统计日后第一次记录才弹窗；取消后靠顶部提醒兜底，避免每记一条都打断。
-  function confirmPendingExport() {
-    if (declinedExportDay.current === statDay) return false
-    if (writePending.current > 0 || pendingExportRows().length === 0) return false
-    const confirmed = window.confirm(`距上次导出已有 ${pendingExportRows().length} 条记录。是否先导出？`)
-    if (!confirmed) declinedExportDay.current = statDay
-    return confirmed
+  function exportAllPendingRecords() {
+    exportActivityRows(pendingExportRows())
+  }
+
+  function exportDueAndClearRecords() {
+    const rows = dueExportRows()
+    if (rows.length === 0) return
+    const ids = rows.map((record) => record.id)
+    exportActivityRows(rows, false)
+    const previousHistory = historyRecords
+    setHistoryRecords((items) => items.filter((item) => !ids.includes(item.id)))
+    runWrite(
+      () => undefined,
+      () => deleteActivities(ids),
+      () => {
+        reloadRecords(statDay)
+        reloadHistoryRecords()
+      },
+      () => setHistoryRecords(previousHistory),
+      () => markExported(),
+    )
+  }
+
+  function openRecordEditor(record: Pick<Activity, 'id' | 'name' | 'started_at' | 'ended_at'>) {
+    setOpenId(null)
+    setEditingError('')
+    setEditingId(record.id)
+    setEditName(record.name)
+    setEditStart(beijingDateTimeInput(record.started_at))
+    setEditEnd(record.ended_at ? beijingDateTimeInput(record.ended_at) : '')
+  }
+
+  function closeRecordEditor() {
+    setEditingId(null)
+    setEditName('')
+    setEditStart('')
+    setEditEnd('')
+    setEditingError('')
+  }
+
+  function saveRecordEdit(event: ReactFormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const record = historyRecords.find((item) => item.id === editingId) ??
+      records.find((item) => item.id === editingId)
+    if (!record) {
+      closeRecordEditor()
+      return
+    }
+    const name = editName.trim()
+    const startedIso = beijingDateTimeInputToIso(editStart)
+    const endedIso = editEnd ? beijingDateTimeInputToIso(editEnd) : null
+    if (!name || !startedIso || (record.ended_at && !endedIso)) {
+      setEditingError('请填写活动名称和有效时间')
+      return
+    }
+    if (endedIso && endedIso < startedIso) {
+      setEditingError('结束时间不能早于开始时间')
+      return
+    }
+    const updated = { ...record, name, started_at: startedIso, ended_at: endedIso }
+    const previousRecords = records
+    const previousHistory = historyRecords
+    syncRecords(
+      () => {
+        setRecords((items) => items.map((item) => item.id === record.id ? updated : item))
+        setHistoryRecords((items) => items.map((item) => item.id === record.id ? updated : item))
+      },
+      () => updateActivity(record.id, {
+        name,
+        started_at: startedIso,
+        ended_at: endedIso,
+      }),
+      () => {
+        setRecords(previousRecords)
+        setHistoryRecords(previousHistory)
+      },
+      () => closeRecordEditor(),
+    )
+  }
+
+  // 旧周期记录在下一次使用时提示；下载必须在确认回调里同步完成，手机才会弹出保存。
+  function confirmDueExportAndClear() {
+    if (declinedExportDay.current === statDay) return []
+    const rows = dueExportRows()
+    if (writePending.current > 0 || rows.length === 0) return []
+    const confirmed = window.confirm(
+      `上个周期起有 ${rows.length} 条记录未导出。是否导出 Markdown 并清空这些旧记录，然后开始新记录？`,
+    )
+    if (!confirmed) {
+      declinedExportDay.current = statDay
+      return []
+    }
+    exportActivityRows(rows, false)
+    return rows
   }
 
   function startRecord() {
@@ -549,19 +672,24 @@ export default function App() {
       setActionError('')
       return
     }
-    const shouldExportPending = confirmPendingExport()
+    const dueRows = confirmDueExportAndClear()
+    const dueIds = dueRows.map((record) => record.id)
     const previous = records
     setActivityName('')
     syncRecords(
       () => localSwitch(name, 'manual'),
-      () => switchActivity(name, 'manual'),
+      async () => {
+        if (dueIds.length > 0) await deleteActivities(dueIds)
+        markExported()
+        return switchActivity(name, 'manual')
+      },
       () => {
         setActivityName(name)
         // 只有没有其它排队写入时才整体回滚，避免覆盖别人的乐观记录
         if (writePending.current === 0) setRecords(previous)
       },
-      shouldExportPending
-        ? (result) => exportPendingRecords(result.started_at)
+      dueIds.length > 0
+        ? () => setHistoryRecords((items) => items.filter((item) => !dueIds.includes(item.id)))
         : undefined,
     )
   }
@@ -572,16 +700,21 @@ export default function App() {
       return
     }
     if (isAlreadyRunning(shortcut.name)) return
-    const shouldExportPending = confirmPendingExport()
+    const dueRows = confirmDueExportAndClear()
+    const dueIds = dueRows.map((record) => record.id)
     const previous = records
     syncRecords(
       () => localSwitch(shortcut.name, 'shortcut'),
-      () => switchActivity(shortcut.name, 'shortcut'),
+      async () => {
+        if (dueIds.length > 0) await deleteActivities(dueIds)
+        markExported()
+        return switchActivity(shortcut.name, 'shortcut')
+      },
       () => {
         if (writePending.current === 0) setRecords(previous)
       },
-      shouldExportPending
-        ? (result) => exportPendingRecords(result.started_at)
+      dueIds.length > 0
+        ? () => setHistoryRecords((items) => items.filter((item) => !dueIds.includes(item.id)))
         : undefined,
     )
   }
@@ -734,19 +867,35 @@ export default function App() {
     <div className="app">
       <header className="app-header">
         <h1>时间记录</h1>
-        <button
-          type="button"
-          className="reset-btn"
-          onClick={resetAll}
-          disabled={records.length === 0}
-          title="下载当日 Markdown 并清空全部记录"
-        >
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
-            <path d="M3 3v5h5" />
-          </svg>
-          重置
-        </button>
+        <div className="header-actions">
+          <button
+            type="button"
+            className="export-btn"
+            onClick={dueExportCount > 0 ? exportDueAndClearRecords : exportAllPendingRecords}
+            disabled={pendingExportRows().length === 0}
+            title={dueExportCount > 0 ? '下载旧记录 Markdown 并清空旧记录' : '下载上次导出后的 Markdown'}
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M12 3v12" />
+              <path d="m7 10 5 5 5-5" />
+              <path d="M4 20h16" />
+            </svg>
+            导出
+          </button>
+          <button
+            type="button"
+            className="reset-btn"
+            onClick={resetAll}
+            disabled={records.length === 0}
+            title="下载当日 Markdown 并清空全部记录"
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
+              <path d="M3 3v5h5" />
+            </svg>
+            重置
+          </button>
+        </div>
       </header>
 
       <section className="current" aria-live="polite">
@@ -763,11 +912,19 @@ export default function App() {
       {pendingExportVisible && (
         <section className="export-reminder" aria-label="未导出记录提醒">
           <p>
-            {exportedAt ? '上次导出后' : '目前'}有 {pendingExportCount} 条记录，数据仍保留在云端。
+            {dueExportCount > 0
+              ? `上个周期有 ${dueExportCount} 条记录未导出。`
+              : `${exportedAt ? '上次导出后' : '目前'}有 ${pendingExportCount} 条记录。`}
           </p>
-          <button type="button" onClick={() => exportPendingRecords()}>
-            导出 Markdown
-          </button>
+          {dueExportCount > 0 ? (
+            <button type="button" onClick={exportDueAndClearRecords}>
+              导出并清空
+            </button>
+          ) : (
+            <button type="button" onClick={exportAllPendingRecords}>
+              导出 Markdown
+            </button>
+          )}
         </section>
       )}
 
@@ -791,6 +948,7 @@ export default function App() {
                 open={openId === segment.record.id}
                 onOpen={() => setOpenId(segment.record.id)}
                 onClose={() => setOpenId(null)}
+                onEdit={() => openRecordEditor(segment.record)}
                 onDelete={() => {
                   if (window.confirm('确认删除这条记录？删除后不可恢复。')) {
                     setOpenId(null)
@@ -925,6 +1083,54 @@ export default function App() {
           </form>
         )}
       </footer>
+
+      {editingId && (
+        <div className="editor-overlay">
+          <form
+            className="editor-panel"
+            role="dialog"
+            aria-label="修改记录"
+            onSubmit={saveRecordEdit}
+          >
+            <h2>修改记录</h2>
+            <label>
+              活动名称
+              <input
+                aria-label="修改活动名称"
+                value={editName}
+                onChange={(event) => setEditName(event.target.value)}
+                maxLength={80}
+              />
+            </label>
+            <div className="editor-grid">
+              <label>
+                开始时间
+                <input
+                  aria-label="开始时间"
+                  type="datetime-local"
+                  value={editStart}
+                  onChange={(event) => setEditStart(event.target.value)}
+                />
+              </label>
+              <label>
+                结束时间
+                <input
+                  aria-label="结束时间"
+                  type="datetime-local"
+                  value={editEnd}
+                  placeholder="进行中可留空"
+                  onChange={(event) => setEditEnd(event.target.value)}
+                />
+              </label>
+            </div>
+            {editingError && <p className="error" role="alert">{editingError}</p>}
+            <div className="editor-actions">
+              <button type="button" onClick={closeRecordEditor}>取消</button>
+              <button className="primary" type="submit">保存</button>
+            </div>
+          </form>
+        </div>
+      )}
     </div>
   )
 }

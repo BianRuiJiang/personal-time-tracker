@@ -6,8 +6,9 @@ const css = readFileSync(resolve(process.cwd(), 'src/styles.css'), 'utf8')
 const html = readFileSync(resolve(process.cwd(), 'index.html'), 'utf8')
 
 describe('移动端适配要点', () => {
-  it('手机端不显示重置按钮', () => {
+  it('手机端不显示重置按钮，但保留导出入口', () => {
     expect(css).toMatch(/@media \(max-width: 560px\) \{[\s\S]{0,200}?\.reset-btn \{ display: none;/)
+    expect(css).toMatch(/@media \(max-width: 560px\) \{[\s\S]{0,200}?\.export-btn \{ display: inline-flex;/)
   })
 
   it('底部面板没有毛玻璃或柔和阴影', () => {
@@ -59,7 +60,8 @@ describe('移动端适配要点', () => {
 
   it('删除层没有红色底色，只保留红字', () => {
     expect(css).toMatch(/\.record-row \{[\s\S]{0,240}?background:\s*var\(--surface\)/)
-    expect(css).toMatch(/\.row-delete \{[\s\S]{0,240}?background:\s*transparent/)
+    expect(css).toMatch(/\.row-actions \{[\s\S]{0,240}?background:\s*transparent/)
+    expect(css).toMatch(/\.row-actions button \{[\s\S]{0,240}?background:\s*transparent/)
   })
 
   it('记录时间贴近右下角', () => {

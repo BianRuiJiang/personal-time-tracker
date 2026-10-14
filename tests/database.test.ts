@@ -35,6 +35,7 @@ beforeAll(async () => {
     grant usage on schema public to authenticated, anon, service_role;
   `)
   await db.exec(productionSql)
+  await db.exec(readFileSync(resolve(process.cwd(), 'supabase/migrations/002_activity_update.sql'), 'utf8'))
   await db.exec(`
     insert into auth.users (id, email) values ('${user1}', 'one@example.com'), ('${user2}', 'two@example.com');
   `)
@@ -218,5 +219,25 @@ describe('数据库核心规则', () => {
       'select count(*)::text as count from public.activities where id = $1', [before[0].id],
     )
     expect(Number(after[0].count)).toBe(0)
+  })
+
+  it('用户可以修改自己的记录，但不能修改他人记录', async () => {
+    await become(user1)
+    const ownRows = await query<{ id: string }>(
+      'select id from public.activities where user_id = $1 limit 1', [user1],
+    )
+    expect(ownRows.length).toBeGreaterThan(0)
+    const updated = await query<{ name: string }>(
+      'update public.activities set name = $2 where id = $1 returning name',
+      [ownRows[0].id, '已修正的活动'],
+    )
+    expect(updated).toEqual([{ name: '已修正的活动' }])
+
+    await become(user2)
+    const foreignResult = await db.query(
+      'update public.activities set name = $2 where id = $1',
+      [ownRows[0].id, '越权修改'],
+    )
+    expect(foreignResult.affectedRows).toBe(0)
   })
 })

@@ -11,10 +11,11 @@
 1. 用邮箱和密码注册或登录。
 2. 在底部输入框写下正在做的事，点「记录」；或点自定义快捷按钮直接切换。
 3. 中间列表按天展示记录，每条显示开始时刻与总时长。当前进行中的那条有绿色左条与描边。
-4. 左滑单条记录露出「删除」，点一下即可删除。
-5. 长按自定义快捷按钮可像移动桌面图标一样拖动排序。
-6. 跨过 05:00 后记录仍保留在云端，页面会显示「上次导出后」的未导出记录；间隔几天后第一次记录时，会询问是否导出这段时间的全部 Markdown。导出标记按精确时间保存，进行中的记录结束后仍会进入下一次提醒。
-7. 右上角「重置」会先自动下载当前范围 Markdown，再清空全部记录（不弹确认框）。
+4. 右上角「导出」可随时下载上次导出后的 Markdown；手机端也保留这个入口。
+5. 左滑单条记录露出「修改」和「删除」，可修正活动名称、开始时间和结束时间。
+6. 长按自定义快捷按钮可像移动桌面图标一样拖动排序。
+7. 记录周期从 05:00 到次日 05:00。上个周期的旧记录会在下一次开始记录时提示「导出并清空」；确认后先在手机可用的手势里下载 Markdown，再删除这批旧记录。当前周期已结束但未导出的记录只提醒，不自动清空。
+8. 电脑端右上角「重置」会先自动下载当前范围 Markdown，再清空全部记录（不弹确认框）；手机端不显示重置。
 
 写入策略：先在本地立即渲染，再同步到云端。同步失败会回滚到服务器状态并提示，不做离线队列。
 
@@ -45,7 +46,7 @@ npm run build
 
 已完成（当前仓库状态）：
 
-1. Supabase 数据库已应用 [`supabase/migrations/001_init.sql`](supabase/migrations/001_init.sql)：3 张表、7 条 RLS 策略、5 个安全 RPC、3 个 pg_cron 定时任务。
+1. Supabase 数据库已应用 [`supabase/migrations/001_init.sql`](supabase/migrations/001_init.sql) 和 [`supabase/migrations/002_activity_update.sql`](supabase/migrations/002_activity_update.sql)。002 用于开放记录修改权限，换环境部署前必须执行。
 2. Supabase **Authentication > URL Configuration** 已设置为 `https://bianruijiang.github.io/personal-time-tracker/`。
 3. GitHub **Actions > Variables** 已配置 `VITE_SUPABASE_URL` 与 `VITE_SUPABASE_PUBLISHABLE_KEY`。
 4. GitHub **Pages > Source** 已设为 GitHub Actions。
@@ -60,7 +61,7 @@ npm run build
 
 ## 测试
 
-- `tests/database.test.ts`：切换活动、同名独立保存、并发唯一约束、自动暂停幂等、睡眠幂等、用户数据隔离、历史删除（PGlite 真实执行迁移 SQL）。
-- `tests/ui.test.tsx`：当前活动展示、时间格式、默认/自定义按钮、左滑删除、长按拖动排序、重置、乐观写入与失败回滚、响应式与色板规则。
+- `tests/database.test.ts`：切换活动、同名独立保存、并发唯一约束、自动暂停幂等、睡眠幂等、用户数据隔离、历史删除与记录修改权限（PGlite 真实执行迁移 SQL）。
+- `tests/ui.test.tsx`：当前活动展示、时间格式、默认/自定义按钮、左滑修改/删除、旧周期导出清空、长按拖动排序、重置、乐观写入与失败回滚、响应式与色板规则。
 - `tests/time.test.ts`：统计日边界、跨日睡眠拆分、Markdown/JSON 导出、时长格式。
 - CI 额外执行 `tsc --noEmit` 与生产构建。
