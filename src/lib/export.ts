@@ -8,9 +8,10 @@ const sourceLabels: Record<Activity['source'], string> = {
   auto_pause: '自动暂停',
 }
 
-function csvValue(value: string | number) {
-  const text = String(value)
-  return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text
+function markdownCell(value: string | number) {
+  return String(value)
+    .replace(/\r\n|\r|\n/g, '<br>')
+    .replace(/\|/g, '\\|')
 }
 
 function download(content: string, filename: string, type: string) {
@@ -45,24 +46,35 @@ export function buildJson(records: Activity[], dayLabel: string) {
   }
 }
 
-export function exportCsv(records: Activity[], dayLabel: string) {
-  const csv = buildCsv(records)
-  download(`\uFEFF${csv}`, `time-records-${dayLabel}.csv`, 'text/csv;charset=utf-8')
+export function exportMarkdown(records: Activity[], dayLabel: string) {
+  const markdown = buildMarkdown(records, dayLabel)
+  download(markdown, `time-records-${dayLabel}.md`, 'text/markdown;charset=utf-8')
 }
 
-export function buildCsv(records: Activity[]) {
+export function buildMarkdown(records: Activity[], dayLabel: string) {
   const headers = ['活动名称', '开始时间', '结束时间', '耗时秒', '记录来源', '记录来源标签', '记录ID']
-  const lines = [headers.join(',')]
+  const lines = [
+    '# 时间记录导出',
+    '',
+    `- 导出时间：${beijingDateTime(new Date())}`,
+    '- 时区：Asia/Shanghai',
+    `- 范围：${dayLabel}`,
+    `- 记录数：${records.length}`,
+    '',
+    `| ${headers.join(' | ')} |`,
+    `| ${headers.map(() => '---').join(' | ')} |`,
+  ]
   for (const record of records) {
-    lines.push([
-      csvValue(record.name),
+    const cells = [
+      markdownCell(record.name),
       beijingDateTime(record.started_at),
       record.ended_at ? beijingDateTime(record.ended_at) : '',
       record.ended_at ? durationSeconds(record.started_at, record.ended_at) : '',
       record.source,
       sourceLabels[record.source],
-      record.id,
-    ].join(','))
+      markdownCell(record.id),
+    ]
+    lines.push(`| ${cells.join(' | ')} |`)
   }
   return lines.join('\n')
 }

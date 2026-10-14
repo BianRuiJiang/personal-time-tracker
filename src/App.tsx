@@ -24,7 +24,7 @@ import {
   statisticalDay,
   shiftDate,
 } from './lib/time'
-import { exportCsv } from './lib/export'
+import { exportMarkdown } from './lib/export'
 import type { Activity, Shortcut } from './types'
 
 const REVEAL = 84
@@ -525,7 +525,7 @@ export default function App() {
     const firstDay = days[0]
     const lastDay = days[days.length - 1]
     const label = firstDay === lastDay ? firstDay : `${firstDay}_to_${lastDay}`
-    exportCsv(rows, label)
+    exportMarkdown(rows, label)
     markExported()
   }
 
@@ -596,11 +596,11 @@ export default function App() {
     )
   }
 
-  // 重置：先把当日 CSV 下载到本地再清空；本地立即清空，云端失败会回滚
+  // 重置：先把当日 Markdown 下载到本地再清空；本地立即清空，云端失败会回滚
   function resetAll() {
     if (!session) return
     const previous = records
-    if (records.length > 0) exportCsv(records, statDay)
+    if (records.length > 0) exportMarkdown(records, statDay)
     syncRecords(
       () => setRecords([]),
       () => deleteAllActivities(session.user.id),
@@ -739,7 +739,7 @@ export default function App() {
           className="reset-btn"
           onClick={resetAll}
           disabled={records.length === 0}
-          title="下载当日 CSV 并清空全部记录"
+          title="下载当日 Markdown 并清空全部记录"
         >
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
@@ -766,7 +766,7 @@ export default function App() {
             {exportedAt ? '上次导出后' : '目前'}有 {pendingExportCount} 条记录，数据仍保留在云端。
           </p>
           <button type="button" onClick={() => exportPendingRecords()}>
-            导出 CSV
+            导出 Markdown
           </button>
         </section>
       )}

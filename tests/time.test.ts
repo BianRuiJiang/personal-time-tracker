@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { dayRange, durationLabel, durationText, shiftDate, splitForStatDay, statisticalDay } from '../src/lib/time'
-import { buildCsv, buildJson } from '../src/lib/export'
+import { buildJson, buildMarkdown } from '../src/lib/export'
 import type { Activity } from '../src/types'
 
 function record(partial: Partial<Activity>): Activity {
@@ -56,16 +56,16 @@ describe('北京时间统计日', () => {
 })
 
 describe('原始数据导出', () => {
-  it('CSV 和 JSON 逐条导出，不合并同名活动', () => {
+  it('Markdown 和 JSON 逐条导出，不合并同名活动', () => {
     const rows = [
       record({ id: 'one', started_at: '2026-10-12T00:00:00Z', ended_at: '2026-10-12T01:00:00Z' }),
       record({ id: 'two', started_at: '2026-10-12T02:00:00Z', ended_at: '2026-10-12T03:00:00Z' }),
     ]
-    const csv = buildCsv(rows)
+    const markdown = buildMarkdown(rows, '2026-10-12')
     const json = buildJson(rows, '2026-10-12')
-    expect(csv.split('\n')).toHaveLength(3)
-    expect(csv).toContain('学习')
-    expect(csv).toContain('2026-10-12 08:00:00')
+    expect(markdown).toContain('| 活动名称 | 开始时间 | 结束时间 | 耗时秒 | 记录来源 | 记录来源标签 | 记录ID |')
+    expect(markdown).toContain('| 学习 | 2026-10-12 08:00:00 | 2026-10-12 09:00:00 | 3600 | manual | 手动 | one |')
+    expect(markdown).toContain('- 时区：Asia/Shanghai')
     expect(json.records).toHaveLength(2)
     expect(json.timezone).toBe('Asia/Shanghai')
     expect(json.records[0].duration_seconds).toBe(3600)

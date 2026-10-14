@@ -131,7 +131,7 @@ describe('时间记录界面', () => {
     )
     // 当前进行中的记录未定型，不计入这次最终导出提醒。
     expect(screen.getByLabelText('未导出记录提醒')).toHaveTextContent('有 2 条记录')
-    expect(screen.getByRole('button', { name: '导出 CSV' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: '导出 Markdown' })).toBeEnabled()
   })
 
   it('隔几天记录时提示导出上次以后的数据，同一统计日不重复提示', async () => {
@@ -446,7 +446,7 @@ describe('时间记录界面', () => {
     expect(screen.getByLabelText('活动名称')).toHaveValue('写周报')
   })
 
-  it('重置不弹确认框，先下载当日 CSV 再清空所有记录', async () => {
+  it('重置不弹确认框，先下载当日 Markdown 再清空所有记录', async () => {
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
     const user = userEvent.setup()
     render(<App />)
