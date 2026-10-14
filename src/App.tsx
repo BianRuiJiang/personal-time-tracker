@@ -5,7 +5,6 @@ import { AuthForm } from './components/AuthForm'
 import { configError, supabase } from './lib/supabase'
 import {
   addShortcut,
-  deleteActivities,
   deleteActivity,
   deleteAllActivities,
   deleteShortcut,
@@ -202,7 +201,6 @@ export default function App() {
   const [openId, setOpenId] = useState<string | null>(null)
   const [newShortcut, setNewShortcut] = useState('')
   const [now, setNow] = useState(() => new Date())
-  const [exportedAt, setExportedAt] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editName, setEditName] = useState('')
   const [editStart, setEditStart] = useState('')
@@ -210,7 +208,6 @@ export default function App() {
   const [editingError, setEditingError] = useState('')
   const lastTouchRef = useRef(0)
   const displayRef = useRef<HTMLElement | null>(null)
-  const declinedExportDay = useRef<string | null>(null)
   // 新增记录后需要把列表滚到底，让刚记的那条可见
   const scrollPending = useRef(false)
   // 写操作串行排队：快速连点不会丢操作，也不会和刷新互相覆盖。
@@ -284,37 +281,6 @@ export default function App() {
       setActionError(error instanceof Error ? error.message : '刷新导出数据失败，请稍后重试')
     })
   }, [loadHistoryRecords])
-
-  const exportStorageKey = useCallback((userId: string) => `time-tracker-exported-at-${userId}`, [])
-  const legacyExportDayKey = useCallback((userId: string) => `time-tracker-exported-day-${userId}`, [])
-
-  useEffect(() => {
-    if (!session) {
-      setExportedAt(null)
-      return
-    }
-    const userId = session.user.id
-    const storedAt = window.localStorage.getItem(exportStorageKey(userId))
-    if (storedAt && !Number.isNaN(new Date(storedAt).getTime())) {
-      setExportedAt(new Date(storedAt).toISOString())
-      return
-    }
-
-    // 旧版本只保存导出日；迁移到时间点后，新导出的记录才不会被同一天的日期标记吞掉。
-    const legacyDay = window.localStorage.getItem(legacyExportDayKey(userId))
-    if (legacyDay && !Number.isNaN(new Date(legacyDay).getTime())) {
-      const marker = legacyDay === statisticalDay()
-        ? new Date()
-        : dayRange(legacyDay).end
-      const markerIso = marker.toISOString()
-      window.localStorage.setItem(exportStorageKey(userId), markerIso)
-      window.localStorage.removeItem(legacyExportDayKey(userId))
-      setExportedAt(markerIso)
-      return
-    }
-
-    setExportedAt(null)
-  }, [session, exportStorageKey, legacyExportDayKey])
 
   useEffect(() => {
     if (!session) {
@@ -403,29 +369,6 @@ export default function App() {
     () => splitForStatDay(records, statDay, now),
     [records, statDay, now],
   )
-  const pendingExportCount = useMemo(() => {
-    const cutoff = exportedAt ? new Date(exportedAt).getTime() : 0
-    const cycleStart = dayRange(statDay).start.getTime()
-    return historyRecords.filter((record) => {
-      // 进行中的记录还没定型，导出后也不标记为最终已导出。
-      if (!record.ended_at) return false
-      const end = new Date(record.ended_at).getTime()
-      return new Date(record.started_at).getTime() < now.getTime() &&
-        end > cutoff &&
-        end >= cycleStart
-    }).length
-  }, [exportedAt, historyRecords, now, statDay])
-  const dueExportCount = useMemo(() => {
-    const cutoff = exportedAt ? new Date(exportedAt).getTime() : 0
-    const cycleStart = dayRange(statDay).start.getTime()
-    return historyRecords.filter((record) => {
-      if (!record.ended_at) return false
-      const end = new Date(record.ended_at).getTime()
-      return end > cutoff && end < cycleStart
-    }).length
-  }, [exportedAt, historyRecords, statDay])
-  const pendingExportVisible = pendingExportCount > 0 || dueExportCount > 0
-
   // 记录成功后把列表滚到底部，保证刚新增的那条在可视范围内
   useEffect(() => {
     if (!scrollPending.current) return
@@ -525,67 +468,22 @@ export default function App() {
     return open?.name === name
   }
 
-  function pendingExportRows(endOverride?: string) {
-    const cutoff = exportedAt ? new Date(exportedAt).getTime() : 0
-    const boundary = endOverride ?? now.toISOString()
-    return historyRecords.filter((record) => {
-      if (!record.ended_at) return false
-      const rawEnd = record.ended_at
-      return new Date(record.started_at) < new Date(boundary) &&
-        new Date(rawEnd).getTime() > cutoff
-    })
+  function resetExportRows() {
+    // 今日接口只查两个统计日；重置必须带上全部历史，避免旧周期记录漏导。
+    const byId = new Map<string, Activity>()
+    for (const row of [...historyRecords, ...records]) {
+      if (!byId.has(row.id)) byId.set(row.id, row)
+    }
+    return [...byId.values()]
   }
 
-  function dueExportRows() {
-    const cutoff = exportedAt ? new Date(exportedAt).getTime() : 0
-    const cycleStart = dayRange(statDay).start.getTime()
-    return historyRecords.filter((record) => {
-      if (!record.ended_at) return false
-      const end = new Date(record.ended_at).getTime()
-      return end > cutoff && end < cycleStart
-    })
-  }
-
-  function markExported(marker: Date = new Date()) {
-    if (!session) return
-    const markerIso = marker.toISOString()
-    window.localStorage.setItem(exportStorageKey(session.user.id), markerIso)
-    window.localStorage.removeItem(legacyExportDayKey(session.user.id))
-    setExportedAt(markerIso)
-    declinedExportDay.current = null
-  }
-
-  function exportActivityRows(rows: Activity[], mark = true) {
+  function exportResetRows(rows: Activity[]) {
     if (rows.length === 0) return
     const days = rows.map((record) => statisticalDay(new Date(record.started_at))).sort()
     const firstDay = days[0]
     const lastDay = days[days.length - 1]
     const label = firstDay === lastDay ? firstDay : `${firstDay}_to_${lastDay}`
     exportMarkdown(rows, label)
-    if (mark) markExported()
-  }
-
-  function exportAllPendingRecords() {
-    exportActivityRows(pendingExportRows())
-  }
-
-  function exportDueAndClearRecords() {
-    const rows = dueExportRows()
-    if (rows.length === 0) return
-    const ids = rows.map((record) => record.id)
-    exportActivityRows(rows, false)
-    const previousHistory = historyRecords
-    setHistoryRecords((items) => items.filter((item) => !ids.includes(item.id)))
-    runWrite(
-      () => undefined,
-      () => deleteActivities(ids),
-      () => {
-        reloadRecords(statDay)
-        reloadHistoryRecords()
-      },
-      () => setHistoryRecords(previousHistory),
-      () => markExported(),
-    )
   }
 
   function openRecordEditor(record: Pick<Activity, 'id' | 'name' | 'started_at' | 'ended_at'>) {
@@ -645,22 +543,6 @@ export default function App() {
     )
   }
 
-  // 旧周期记录在下一次使用时提示；下载必须在确认回调里同步完成，手机才会弹出保存。
-  function confirmDueExportAndClear() {
-    if (declinedExportDay.current === statDay) return []
-    const rows = dueExportRows()
-    if (writePending.current > 0 || rows.length === 0) return []
-    const confirmed = window.confirm(
-      `上个周期起有 ${rows.length} 条记录未导出。是否导出 Markdown 并清空这些旧记录，然后开始新记录？`,
-    )
-    if (!confirmed) {
-      declinedExportDay.current = statDay
-      return []
-    }
-    exportActivityRows(rows, false)
-    return rows
-  }
-
   function startRecord() {
     const name = activityName.trim()
     if (!name) {
@@ -672,25 +554,16 @@ export default function App() {
       setActionError('')
       return
     }
-    const dueRows = confirmDueExportAndClear()
-    const dueIds = dueRows.map((record) => record.id)
     const previous = records
     setActivityName('')
     syncRecords(
       () => localSwitch(name, 'manual'),
-      async () => {
-        if (dueIds.length > 0) await deleteActivities(dueIds)
-        markExported()
-        return switchActivity(name, 'manual')
-      },
+      () => switchActivity(name, 'manual'),
       () => {
         setActivityName(name)
         // 只有没有其它排队写入时才整体回滚，避免覆盖别人的乐观记录
         if (writePending.current === 0) setRecords(previous)
       },
-      dueIds.length > 0
-        ? () => setHistoryRecords((items) => items.filter((item) => !dueIds.includes(item.id)))
-        : undefined,
     )
   }
 
@@ -700,22 +573,13 @@ export default function App() {
       return
     }
     if (isAlreadyRunning(shortcut.name)) return
-    const dueRows = confirmDueExportAndClear()
-    const dueIds = dueRows.map((record) => record.id)
     const previous = records
     syncRecords(
       () => localSwitch(shortcut.name, 'shortcut'),
-      async () => {
-        if (dueIds.length > 0) await deleteActivities(dueIds)
-        markExported()
-        return switchActivity(shortcut.name, 'shortcut')
-      },
+      () => switchActivity(shortcut.name, 'shortcut'),
       () => {
         if (writePending.current === 0) setRecords(previous)
       },
-      dueIds.length > 0
-        ? () => setHistoryRecords((items) => items.filter((item) => !dueIds.includes(item.id)))
-        : undefined,
     )
   }
 
@@ -729,15 +593,23 @@ export default function App() {
     )
   }
 
-  // 重置：先把当日 Markdown 下载到本地再清空；本地立即清空，云端失败会回滚
+  // 重置：先在用户手势里同步下载 Markdown，再清空；删除失败时本地会回滚。
   function resetAll() {
     if (!session) return
-    const previous = records
-    if (records.length > 0) exportMarkdown(records, statDay)
+    const rows = resetExportRows()
+    const previousRecords = records
+    const previousHistory = historyRecords
+    if (rows.length > 0) exportResetRows(rows)
     syncRecords(
-      () => setRecords([]),
+      () => {
+        setRecords([])
+        setHistoryRecords([])
+      },
       () => deleteAllActivities(session.user.id),
-      () => setRecords(previous),
+      () => {
+        setRecords(previousRecords)
+        setHistoryRecords(previousHistory)
+      },
     )
   }
 
@@ -870,24 +742,10 @@ export default function App() {
         <div className="header-actions">
           <button
             type="button"
-            className="export-btn"
-            onClick={dueExportCount > 0 ? exportDueAndClearRecords : exportAllPendingRecords}
-            disabled={pendingExportRows().length === 0}
-            title={dueExportCount > 0 ? '下载旧记录 Markdown 并清空旧记录' : '下载上次导出后的 Markdown'}
-          >
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M12 3v12" />
-              <path d="m7 10 5 5 5-5" />
-              <path d="M4 20h16" />
-            </svg>
-            导出
-          </button>
-          <button
-            type="button"
             className="reset-btn"
             onClick={resetAll}
-            disabled={records.length === 0}
-            title="下载当日 Markdown 并清空全部记录"
+            disabled={records.length === 0 && historyRecords.length === 0}
+            title="先导出 Markdown，再清空全部记录"
           >
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
@@ -908,25 +766,6 @@ export default function App() {
           <h2 className="current-name idle">没有进行中的活动</h2>
         )}
       </section>
-
-      {pendingExportVisible && (
-        <section className="export-reminder" aria-label="未导出记录提醒">
-          <p>
-            {dueExportCount > 0
-              ? `上个周期有 ${dueExportCount} 条记录未导出。`
-              : `${exportedAt ? '上次导出后' : '目前'}有 ${pendingExportCount} 条记录。`}
-          </p>
-          {dueExportCount > 0 ? (
-            <button type="button" onClick={exportDueAndClearRecords}>
-              导出并清空
-            </button>
-          ) : (
-            <button type="button" onClick={exportAllPendingRecords}>
-              导出 Markdown
-            </button>
-          )}
-        </section>
-      )}
 
       <div className="history-head">
         <h3>今日记录</h3>

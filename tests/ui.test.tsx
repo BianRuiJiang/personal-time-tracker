@@ -40,12 +40,18 @@ const supabaseMocks = vi.hoisted(() => {
   }
 })
 
+const exportMocks = vi.hoisted(() => ({
+  exportMarkdown: vi.fn(),
+}))
+
 vi.mock('../src/lib/api', () => apiMocks)
 vi.mock('../src/lib/supabase', () => ({
   supabase: { ...supabaseMocks, auth: supabaseMocks },
   configError: null,
   redirectUrl: () => 'https://example.github.io/personal-time-tracker/',
 }))
+
+vi.mock('../src/lib/export', () => exportMocks)
 
 const userId = '2d59cd70-04f3-4a92-a13b-6b3f2c9f24f1'
 const session = {
@@ -115,10 +121,11 @@ beforeEach(() => {
   apiMocks.renameShortcut.mockResolvedValue(undefined)
   apiMocks.deleteShortcut.mockResolvedValue(undefined)
   apiMocks.addShortcut.mockResolvedValue(undefined)
+  exportMocks.exportMarkdown.mockClear()
 })
 
 describe('时间记录界面', () => {
-  it('隔几天没有记录时，仍提醒导出全部未导出记录', async () => {
+  it('旧周期记录不再单独提醒，统一交给重置入口', async () => {
     apiMocks.fetchActivitiesByOverlap.mockResolvedValue([
       activity({ id: 'current-id', name: '写作', source: 'shortcut', started_at: new Date().toISOString() }),
     ])
@@ -135,12 +142,12 @@ describe('时间记录界面', () => {
       dayRange(shiftDate(statisticalDay(), -1)).start.toISOString(),
       dayRange(statisticalDay()).end.toISOString(),
     )
-    // 当前进行中的记录未定型；两个历史周期的已结束记录等待导出并清空。
-    expect(screen.getByLabelText('未导出记录提醒')).toHaveTextContent('上个周期有 2 条记录未导出')
-    expect(screen.getByRole('button', { name: '导出并清空' })).toBeEnabled()
+    expect(screen.queryByLabelText('未导出记录提醒')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '导出并清空' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '重置' })).toBeEnabled()
   })
 
-  it('隔几天记录时提示导出上次以后的数据，同一统计日不重复提示', async () => {
+  it('开始记录不再弹出导出确认，也不自动清空旧周期', async () => {
     apiMocks.fetchActivitiesByOverlap.mockResolvedValue([
       activity({ id: 'current-id', name: '写作', source: 'shortcut', started_at: new Date().toISOString() }),
     ])
@@ -150,8 +157,7 @@ describe('时间记录界面', () => {
       activity({ id: 'current-id', name: '写作', source: 'shortcut', started_at: new Date().toISOString() }),
     ])
     apiMocks.switchActivity.mockResolvedValue(activity({ id: 'new-id', name: '阅读', source: 'manual' }))
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
-    const createObjectURL = URL.createObjectURL as unknown as ReturnType<typeof vi.fn>
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
     const user = userEvent.setup()
 
     render(<App />)
@@ -161,17 +167,16 @@ describe('时间记录界面', () => {
     await user.click(screen.getByRole('button', { name: '记录' }))
 
     await waitFor(() => expect(apiMocks.switchActivity).toHaveBeenCalledWith('阅读', 'manual'))
-    await waitFor(() => expect(apiMocks.deleteActivities).toHaveBeenCalledWith(['history--3', 'history--2']))
-    await waitFor(() => expect(createObjectURL).toHaveBeenCalledTimes(1))
-    expect(confirm).toHaveBeenCalledOnce()
-    expect(new Date(window.localStorage.getItem(`time-tracker-exported-at-${userId}`) ?? '').getTime()).not.toBeNaN()
+    expect(apiMocks.deleteActivities).not.toHaveBeenCalled()
+    expect(exportMocks.exportMarkdown).not.toHaveBeenCalled()
+    expect(confirm).not.toHaveBeenCalled()
 
     await user.type(screen.getByLabelText('活动名称'), '运动')
     await user.click(screen.getByRole('button', { name: '记录' }))
     await waitFor(() => expect(apiMocks.switchActivity).toHaveBeenCalledWith('运动', 'manual'))
 
-    expect(createObjectURL).toHaveBeenCalledTimes(1)
-    expect(confirm).toHaveBeenCalledOnce()
+    expect(exportMocks.exportMarkdown).not.toHaveBeenCalled()
+    expect(confirm).not.toHaveBeenCalled()
   })
 
   it('只显示服务器确认的当前活动，不再显示秒或持续时长', async () => {
@@ -180,21 +185,6 @@ describe('时间记录界面', () => {
     expect(screen.queryByText(/已持续/)).not.toBeInTheDocument()
     expect(screen.queryByText(/正在进行/)).not.toBeInTheDocument()
     expect(apiMocks.fetchActivitiesByOverlap).toHaveBeenCalled()
-  })
-
-  it('按导出时间点判断未导出记录，同一天新增记录不会被跳过', async () => {
-    const exportedAt = new Date(Date.now() - 120_000)
-    const startedAt = new Date(Date.now() - 90_000)
-    const endedAt = new Date(Date.now() - 30_000)
-    window.localStorage.setItem(`time-tracker-exported-at-${userId}`, exportedAt.toISOString())
-    apiMocks.fetchAllActivities.mockResolvedValue([
-      activity({ id: 'after-export-id', started_at: startedAt.toISOString(), ended_at: endedAt.toISOString() }),
-    ])
-
-    render(<App />)
-    await waitFor(() => expect(screen.getByLabelText('未导出记录提醒')).toHaveTextContent('有 1 条记录'))
-
-    expect(screen.getByLabelText('未导出记录提醒')).toHaveTextContent('有 1 条记录')
   })
 
   it('每条记录同时显示开始时刻与总时长，精确到分且不出现秒与区间', async () => {
@@ -500,18 +490,26 @@ describe('时间记录界面', () => {
     expect(screen.getByLabelText('活动名称')).toHaveValue('写周报')
   })
 
-  it('重置不弹确认框，先下载当日 Markdown 再清空所有记录', async () => {
+  it('重置先下载全部记录 Markdown，再清空所有记录', async () => {
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    apiMocks.fetchAllActivities.mockResolvedValue([
+      historicalActivity(-3, { name: '整理' }),
+      historicalActivity(-2, { name: '复盘' }),
+    ])
     const user = userEvent.setup()
     render(<App />)
     await screen.findAllByText('写作')
 
-    const createObjectURL = URL.createObjectURL as unknown as ReturnType<typeof vi.fn>
+    await waitFor(() => expect(screen.getByRole('button', { name: '重置' })).toBeEnabled())
     await user.click(screen.getByRole('button', { name: '重置' }))
 
     expect(confirm).not.toHaveBeenCalled()
     await waitFor(() => expect(apiMocks.deleteAllActivities).toHaveBeenCalledWith(userId))
-    expect(createObjectURL).toHaveBeenCalled()
+    expect(exportMocks.exportMarkdown).toHaveBeenCalledTimes(1)
+    const [exportedRows] = exportMocks.exportMarkdown.mock.calls[0]
+    expect(exportedRows.map((row: Activity) => row.name)).toEqual(
+      expect.arrayContaining(['整理', '复盘', '学习', '写作']),
+    )
   })
 
   it('滚动区只包含记录条目，不含标题和今日记录抬头', async () => {
