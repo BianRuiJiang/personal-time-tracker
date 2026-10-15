@@ -252,6 +252,15 @@ describe('数据库核心规则', () => {
     )
     await query("select public.switch_activity('重置前记录', 'manual')")
 
+    // 测试执行极快时，开始时间和重置边界可能同帧；回拨避免用例依赖毫秒差。
+    await become(null, 'postgres')
+    await db.exec(`
+      update public.activities
+      set started_at = clock_timestamp() - interval '1 millisecond'
+      where user_id = '${user1}' and ended_at is null;
+    `)
+    await become(user1)
+
     const reset = await query<{ id: string; started_at: string }>('select * from public.reset_record_cycle()')
     const cycles = await query<{ id: string; ended_at: string | null }>(
       'select id, ended_at from public.record_cycles where user_id = $1 order by started_at',

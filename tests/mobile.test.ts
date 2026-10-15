@@ -58,6 +58,18 @@ describe('移动端适配要点', () => {
     expect(css).toMatch(/\.editor-panel \{[\s\S]{0,500}?overflow-y:\s*auto/)
   })
 
+  it('修改界面在小屏使用底部抽屉且输入框不溢出', () => {
+    const mobileBlock = css.match(/@media \(max-width: 560px\) \{([\s\S]*)\}/)
+    expect(mobileBlock).not.toBeNull()
+    const mobileCss = mobileBlock![1]
+    expect(mobileCss).toContain('.editor-overlay {')
+    expect(mobileCss).toMatch(/\.editor-overlay \{[^}]*align-items:\s*flex-end/)
+    expect(mobileCss).toMatch(/\.editor-grid \{[^}]*grid-template-columns:\s*1fr/)
+    expect(mobileCss).toMatch(/\.editor-panel input \{[^}]*max-width:\s*100%/)
+    expect(mobileCss).toMatch(/\.editor-panel input\[type="datetime-local"\] \{[^}]*min-width:\s*0/)
+    expect(mobileCss).toMatch(/\.editor-actions \{[^}]*position:\s*sticky/)
+  })
+
   it('底部记录区限高并可内部滚动，快捷键再多也挤不掉记录列表', () => {
     expect(css).toMatch(/\.composer \{[\s\S]{0,600}?max-height:\s*56dvh/)
     expect(css).toMatch(/\.composer \{[\s\S]{0,600}?overflow-y:\s*auto/)
