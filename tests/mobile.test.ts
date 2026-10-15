@@ -6,12 +6,12 @@ const css = readFileSync(resolve(process.cwd(), 'src/styles.css'), 'utf8')
 const html = readFileSync(resolve(process.cwd(), 'index.html'), 'utf8')
 
 describe('移动端适配要点', () => {
-  it('手机端保留统一的导出重置入口', () => {
+  it('手机端隐藏重置入口', () => {
     expect(css).not.toContain('.export-btn')
     expect(css).not.toContain('.export-reminder')
     const mobileBlock = css.match(/@media \(max-width: 560px\) \{([\s\S]*)\}/)
     expect(mobileBlock).not.toBeNull()
-    expect(mobileBlock![1]).not.toContain('.reset-btn { display: none; }')
+    expect(mobileBlock![1]).toContain('.reset-btn { display: none; }')
   })
 
   it('底部面板没有毛玻璃或柔和阴影', () => {

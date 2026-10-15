@@ -665,6 +665,8 @@ label { display: grid; gap: 6px; font-size: 13px; color: var(--ink-2); }
 
 @media (max-width: 560px) {
   .app-header { padding: calc(env(safe-area-inset-top) + 16px) 16px 8px; }
+  /* 重置包含导出流程，只保留在网页端；手机端避免误触。 */
+  .reset-btn { display: none; }
   .current { padding: 10px 16px 20px; }
   .current-name { font-size: 32px; }
   .history-head { padding: 0 16px 10px; }
