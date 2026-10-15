@@ -3,7 +3,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import App from '../src/App'
 import type { Activity, RecordCycle, Shortcut } from '../src/types'
-import { dayRange, shiftDate, statisticalDay } from '../src/lib/time'
+import { beijingMinute, dayRange, shiftDate, statisticalDay } from '../src/lib/time'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
@@ -206,7 +206,6 @@ describe('时间记录界面', () => {
     expect(screen.queryByText(/\d{2}:\d{2}:\d{2}/)).not.toBeInTheDocument()
     expect(screen.queryByText(/～/)).not.toBeInTheDocument()
     expect(screen.getAllByText(/^\d{2}时\d{2}分$/).length).toBeGreaterThan(0)
-    expect(screen.getAllByText(/^(\d+h\d+min|\d+min)$/).length).toBeGreaterThan(0)
   })
 
   it('默认按钮只填入输入框，自定义按钮立即切换', async () => {
@@ -531,6 +530,14 @@ describe('时间记录界面', () => {
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('网络中断'))
     expect(screen.queryByText('写周报')).not.toBeInTheDocument()
     expect(screen.getByLabelText('活动名称')).toHaveValue('写周报')
+  })
+
+  it('记录时间显示 HH:MM，时长显示 HH时MM分', async () => {
+    const startedAt = new Date(dayRange(statisticalDay()).start.getTime() + 60_000)
+    render(<App />)
+    await screen.findByText(beijingMinute(startedAt))
+    expect(screen.getAllByText(beijingMinute(startedAt)).length).toBeGreaterThan(0)
+    expect(screen.getAllByText('00时01分').length).toBeGreaterThan(0)
   })
 
   it('重置先下载当前周期 Markdown，再开启新周期且不删除云端记录', async () => {

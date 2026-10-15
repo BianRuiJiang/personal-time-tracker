@@ -31,7 +31,8 @@ describe('移动端适配要点', () => {
     expect(manifest.icons.some((i: { purpose?: string }) => i.purpose === 'maskable')).toBe(true)
     expect(html).toContain('rel="manifest"')
     expect(html).toContain('apple-touch-icon')
-    for (const file of ['apple-touch-icon.png', 'icon-192.png', 'icon-512.png', 'icon-maskable-512.png']) {
+    expect(html).toContain('sizes="32x32"')
+    for (const file of ['apple-touch-icon.png', 'favicon-32.png', 'icon-192.png', 'icon-512.png', 'icon-maskable-512.png']) {
       expect(existsSync(resolve(process.cwd(), 'public/icons', file))).toBe(true)
     }
   })

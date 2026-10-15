@@ -89,16 +89,15 @@ export function durationText(start: string | Date, end: string | Date | null) {
 }
 
 export function beijingClockLabel(value: string | Date) {
-  const [hour, minute] = beijingMinute(value).split(':')
-  return `${hour}时${minute}分`
+  return beijingMinute(value)
 }
 
-// 时长统一为 xxhxxmin，不足 1 分钟按 1 分钟计；不足 1 小时不显示前导 0
+// 时长固定为 HH时MM分，不足 1 分钟按 1 分钟计
 export function durationLabel(start: string | Date, end: string | Date | null) {
   const totalMinutes = Math.max(1, Math.floor(durationSeconds(start, end) / 60))
   const hours = Math.floor(totalMinutes / 60)
   const minutes = totalMinutes % 60
-  return hours > 0 ? `${hours}h${minutes}min` : `${minutes}min`
+  return `${String(hours).padStart(2, '0')}时${String(minutes).padStart(2, '0')}分`
 }
 
 export function durationSeconds(start: string | Date, end: string | Date | null) {
