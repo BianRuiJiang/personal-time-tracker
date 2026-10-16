@@ -92,11 +92,12 @@ export function beijingClockLabel(value: string | Date) {
   return beijingMinute(value)
 }
 
-// 时长固定为 HH时MM分，不足 1 分钟按 1 分钟计
+// 不足 1 小时只显示分钟；达到 1 小时才显示时和分
 export function durationLabel(start: string | Date, end: string | Date | null) {
   const totalMinutes = Math.max(1, Math.floor(durationSeconds(start, end) / 60))
   const hours = Math.floor(totalMinutes / 60)
   const minutes = totalMinutes % 60
+  if (hours < 1) return `${String(minutes).padStart(2, '0')}分`
   return `${String(hours).padStart(2, '0')}时${String(minutes).padStart(2, '0')}分`
 }
 

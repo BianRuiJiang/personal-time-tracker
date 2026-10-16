@@ -7,7 +7,6 @@ import {
   addShortcut,
   deleteActivity,
   deleteShortcut,
-  fetchActivitiesByOverlap,
   fetchCurrentCycle,
   fetchCycleActivities,
   fetchShortcuts,
@@ -22,11 +21,8 @@ import {
   beijingClockLabel,
   beijingDateTimeInput,
   beijingDateTimeInputToIso,
-  dayRange,
   durationLabel,
-  splitForStatDay,
   statisticalDay,
-  shiftDate,
 } from './lib/time'
 import { exportMarkdown } from './lib/export'
 import type { Activity, Shortcut } from './types'
@@ -221,7 +217,6 @@ export default function App() {
   const [shortcuts, setShortcuts] = useState<Shortcut[]>([])
   const [records, setRecords] = useState<Activity[]>([])
   const [historyRecords, setHistoryRecords] = useState<Activity[]>([])
-  const [statDay, setStatDay] = useState(() => statisticalDay())
   const [activityName, setActivityName] = useState('')
   const [actionError, setActionError] = useState('')
   const [interactionError, setInteractionError] = useState('')
@@ -229,7 +224,7 @@ export default function App() {
   const [managing, setManaging] = useState(false)
   const [openId, setOpenId] = useState<string | null>(null)
   const [newShortcut, setNewShortcut] = useState('')
-  const [now, setNow] = useState(() => new Date())
+  const [, setNow] = useState(() => new Date())
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editName, setEditName] = useState('')
   const [editStart, setEditStart] = useState('')
@@ -275,20 +270,14 @@ export default function App() {
     return () => authListener?.subscription.unsubscribe()
   }, [])
 
-  const loadCycleData = useCallback(async (day: string) => {
+  const loadCycleData = useCallback(async () => {
     if (!session) return
     const requestId = ++cycleRequest.current
     const cycle = await fetchCurrentCycle()
     if (requestId !== cycleRequest.current) return
-    // 多查一个统计日：跨过 05:00 后进行中的记录仍能正常展示。
-    const { start } = dayRange(shiftDate(day, -1))
-    const { end } = dayRange(day)
-    const [visibleRows, cycleRows] = await Promise.all([
-      fetchActivitiesByOverlap(start.toISOString(), end.toISOString(), cycle.started_at),
-      fetchCycleActivities(cycle.started_at),
-    ])
+    const cycleRows = await fetchCycleActivities(cycle.started_at)
     if (requestId !== cycleRequest.current) return
-    setRecords(visibleRows)
+    setRecords(cycleRows)
     setHistoryRecords(cycleRows)
   }, [session])
 
@@ -301,8 +290,8 @@ export default function App() {
   }, [session])
 
   // 统一的刷新入口：永远不产生未捕获的 Promise 拒绝
-  const reloadCycleData = useCallback((day: string) => {
-    loadCycleData(day).catch((error) => {
+  const reloadCycleData = useCallback(() => {
+    loadCycleData().catch((error) => {
       setActionError(error instanceof Error ? error.message : '刷新记录失败，请稍后重试')
     })
   }, [loadCycleData])
@@ -325,8 +314,8 @@ export default function App() {
       return
     }
     reloadShortcuts()
-    reloadCycleData(statDay)
-  }, [session, statDay, reloadShortcuts, reloadCycleData])
+    reloadCycleData()
+  }, [session, reloadShortcuts, reloadCycleData])
 
   useEffect(() => {
     if (!session) return
@@ -340,7 +329,7 @@ export default function App() {
       }, () => {
         // 本地写入排队中时跳过，避免实时事件把乐观记录冲掉
         if (writePending.current > 0) return
-        reloadCycleData(statDay)
+        reloadCycleData()
       })
       .on('postgres_changes', {
         event: '*',
@@ -349,7 +338,7 @@ export default function App() {
         filter: `user_id=eq.${userId}`,
       }, () => {
         if (writePending.current > 0) return
-        reloadCycleData(statDay)
+        reloadCycleData()
       })
       .on('postgres_changes', {
         event: '*',
@@ -365,14 +354,12 @@ export default function App() {
     return () => {
       void supabase.removeChannel(channel)
     }
-  }, [session, statDay, reloadCycleData, reloadShortcuts])
+  }, [session, reloadCycleData, reloadShortcuts])
 
   // 30 秒刷新一次即可，界面只展示到分钟，不出现秒数跳动。
   useEffect(() => {
     const timer = window.setInterval(() => {
-      const next = new Date()
-      setNow(next)
-      setStatDay(statisticalDay(next))
+      setNow(new Date())
     }, 30_000)
     return () => window.clearInterval(timer)
   }, [])
@@ -425,9 +412,10 @@ export default function App() {
     () => records.find((record) => record.ended_at === null) ?? null,
     [records],
   )
-  const todaySegments = useMemo(
-    () => splitForStatDay(records, statDay, now),
-    [records, statDay, now],
+  // 未重置前，页面显示当前周期的全部记录；云端历史始终保留。
+  const cycleSegments = useMemo(
+    () => [...records].sort((left, right) => left.started_at.localeCompare(right.started_at)),
+    [records],
   )
   // 记录成功后把列表滚到底部，保证刚新增的那条在可视范围内
   useEffect(() => {
@@ -441,7 +429,7 @@ export default function App() {
     } else {
       element.scrollTop = element.scrollHeight
     }
-  }, [todaySegments])
+  }, [cycleSegments])
 
   // 写入策略：先在本地渲染，再同步云端。成功后用服务器数据替换本地临时数据；
   // 失败则回滚到服务器状态并提示，不做离线队列。
@@ -491,7 +479,7 @@ export default function App() {
     onResult?: (result: T) => void,
   ) {
     runWrite(applyLocal, action, () => {
-      reloadCycleData(statDay)
+      reloadCycleData()
     }, onFail, onResult)
   }
 
@@ -532,7 +520,7 @@ export default function App() {
   }
 
   function resetExportRows() {
-    // 今日接口只查两个统计日；重置必须带上全部历史，避免旧周期记录漏导。
+    // 当前周期数据已经完整加载；再合并一次是为了兼容刷新间隙中的旧状态。
     const byId = new Map<string, Activity>()
     for (const row of [...historyRecords, ...records]) {
       if (!byId.has(row.id)) byId.set(row.id, row)
@@ -547,6 +535,68 @@ export default function App() {
     const lastDay = days[days.length - 1]
     const label = firstDay === lastDay ? firstDay : `${firstDay}_to_${lastDay}`
     exportMarkdown(rows, label)
+  }
+
+  function cycleResetRows() {
+    const currentDay = statisticalDay(new Date())
+    const rows = resetExportRows()
+    const previousRows = rows.filter((row) => statisticalDay(new Date(row.started_at)) !== currentDay)
+    // 当天已经继续记录过，说明用户已跳过这次周期切换；不再打断当前使用。
+    return rows.some((row) => statisticalDay(new Date(row.started_at)) === currentDay)
+      ? []
+      : previousRows
+  }
+
+  function shouldPromptCycleReset() {
+    return cycleResetRows().length > 0
+  }
+
+  function promptCycleReset() {
+    const count = cycleResetRows().length
+    return window.confirm(
+      `上个使用周期有 ${count} 条记录未导出。是否先导出并重置？重置后将开始新记录。`,
+    )
+  }
+
+  function submitRecord(name: string, source: 'manual' | 'shortcut') {
+    if (shouldPromptCycleReset()) {
+      if (!promptCycleReset()) return
+
+      setActivityName('')
+      const rows = resetExportRows()
+      const previousRecords = records
+      const previousHistory = historyRecords
+      // 必须先导出旧周期；数据库重置成功后再写入的新记录才属于新周期。
+      exportResetRows(rows)
+      syncRecords(
+        () => {
+          const optimistic = optimisticRecord(name, source)
+          setRecords([optimistic])
+          setHistoryRecords([optimistic])
+        },
+        async () => {
+          await resetRecordCycle()
+          return switchActivity(name, source)
+        },
+        () => {
+          setRecords(previousRecords)
+          setHistoryRecords(previousHistory)
+        },
+      )
+      return
+    }
+
+    const previous = records
+    setActivityName('')
+    scrollPending.current = source === 'manual'
+    syncRecords(
+      () => localSwitch(name, source),
+      () => switchActivity(name, source),
+      () => {
+        if (source === 'manual') setActivityName(name)
+        setRecords(previous)
+      },
+    )
   }
 
   function openRecordEditor(record: Pick<Activity, 'id' | 'name' | 'started_at' | 'ended_at'>) {
@@ -617,16 +667,7 @@ export default function App() {
       setActionError('')
       return
     }
-    const previous = records
-    setActivityName('')
-    syncRecords(
-      () => localSwitch(name, 'manual'),
-      () => switchActivity(name, 'manual'),
-      () => {
-        setActivityName(name)
-        setRecords(previous)
-      },
-    )
+    submitRecord(name, 'manual')
   }
 
   function startShortcut(shortcut: Shortcut) {
@@ -635,14 +676,7 @@ export default function App() {
       return
     }
     if (isAlreadyRunning(shortcut.name)) return
-    const previous = records
-    syncRecords(
-      () => localSwitch(shortcut.name, 'shortcut'),
-      () => switchActivity(shortcut.name, 'shortcut'),
-      () => {
-        setRecords(previous)
-      },
-    )
+    submitRecord(shortcut.name, 'shortcut')
   }
 
   function removeRecord(id: string) {
@@ -838,30 +872,30 @@ export default function App() {
       </section>
 
       <div className="history-head">
-        <h3>今日记录</h3>
-        <span className="history-day">{statDay}</span>
+        <h3>未导出记录</h3>
+        <span className="history-day">当前周期</span>
       </div>
 
       <main className="display" ref={displayRef} aria-label="今日记录列表">
-        {todaySegments.length === 0 ? (
+        {cycleSegments.length === 0 ? (
           <p className="empty">还没有记录，从下面开始。</p>
         ) : (
           <ol className="record-list">
-            {todaySegments.map((segment) => (
+            {cycleSegments.map((segment) => (
               <SwipeRow
-                key={`${segment.record.id}-${segment.segment_start}`}
-                name={segment.record.name}
-                timeText={beijingClockLabel(segment.record.started_at)}
-                durationText={durationLabel(segment.segment_start, segment.segment_end)}
-                ongoing={segment.record.ended_at === null}
-                open={openId === segment.record.id}
-                onOpen={() => setOpenId(segment.record.id)}
+                key={segment.id}
+                name={segment.name}
+                timeText={beijingClockLabel(segment.started_at)}
+                durationText={durationLabel(segment.started_at, segment.ended_at)}
+                ongoing={segment.ended_at === null}
+                open={openId === segment.id}
+                onOpen={() => setOpenId(segment.id)}
                 onClose={() => setOpenId(null)}
-                onEdit={() => openRecordEditor(segment.record)}
+                onEdit={() => openRecordEditor(segment)}
                 onDelete={() => {
                   if (window.confirm('确认删除这条记录？删除后不可恢复。')) {
                     setOpenId(null)
-                    removeRecord(segment.record.id)
+                    removeRecord(segment.id)
                   }
                 }}
               />

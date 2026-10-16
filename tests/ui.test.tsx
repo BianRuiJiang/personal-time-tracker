@@ -103,6 +103,12 @@ function historicalActivity(dayOffset: number, partial: Partial<Activity>): Acti
   return activity({ id: `history-${dayOffset}`, started_at: started, ended_at: ended, created_at: started, ...partial })
 }
 
+function mockCycleRows(rows: Activity[]) {
+  // 旧接口只为兼容历史断言；界面现在以当前周期完整数据为准。
+  apiMocks.fetchActivitiesByOverlap.mockResolvedValue(rows)
+  apiMocks.fetchCycleActivities.mockResolvedValue(rows)
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
   window.localStorage.clear()
@@ -117,12 +123,11 @@ beforeEach(() => {
   const dayStart = dayRange(statisticalDay()).start
   const oldStart = new Date(dayStart.getTime() + 60_000).toISOString()
   const oldEnd = new Date(dayStart.getTime() + 120_000).toISOString()
-  apiMocks.fetchActivitiesByOverlap.mockResolvedValue([
+  mockCycleRows([
     activity({ id: 'old-id', started_at: oldStart, ended_at: oldEnd, created_at: oldStart }),
     activity({ id: 'current-id', name: '写作', source: 'shortcut', started_at: new Date().toISOString() }),
   ])
   apiMocks.fetchCurrentCycle.mockResolvedValue(cycle())
-  apiMocks.fetchCycleActivities.mockResolvedValue([])
   apiMocks.resetRecordCycle.mockResolvedValue(cycle({ id: 'next-cycle-id', started_at: new Date().toISOString() }))
   apiMocks.switchActivity.mockResolvedValue(activity({ id: 'new-id', name: '阅读', source: 'shortcut' }))
   apiMocks.updateActivity.mockImplementation((_id: string, values: Partial<Activity>) =>
@@ -137,37 +142,28 @@ beforeEach(() => {
 })
 
 describe('时间记录界面', () => {
-  it('旧周期记录不再单独提醒，统一交给重置入口', async () => {
-    apiMocks.fetchActivitiesByOverlap.mockResolvedValue([
+  it('未重置前显示当前周期的历史记录，不因跨天消失', async () => {
+    mockCycleRows([
       activity({ id: 'current-id', name: '写作', source: 'shortcut', started_at: new Date().toISOString() }),
-    ])
-    apiMocks.fetchCycleActivities.mockResolvedValue([
       historicalActivity(-3, { name: '整理' }),
       historicalActivity(-2, { name: '复盘' }),
-      activity({ id: 'current-id', name: '写作', source: 'shortcut', started_at: new Date().toISOString() }),
     ])
 
     render(<App />)
     await screen.findAllByText('写作')
 
-    expect(apiMocks.fetchActivitiesByOverlap).toHaveBeenCalledWith(
-      dayRange(shiftDate(statisticalDay(), -1)).start.toISOString(),
-      dayRange(statisticalDay()).end.toISOString(),
-      expect.any(String),
-    )
+    expect(screen.getByText('整理')).toBeInTheDocument()
+    expect(screen.getByText('复盘')).toBeInTheDocument()
     expect(screen.queryByLabelText('未导出记录提醒')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '导出并清空' })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: '重置' })).toBeEnabled()
   })
 
-  it('开始记录不再弹出导出确认，也不自动清空旧周期', async () => {
-    apiMocks.fetchActivitiesByOverlap.mockResolvedValue([
+  it('同一周期当天已有记录时，继续记录不触发重置提示', async () => {
+    mockCycleRows([
       activity({ id: 'current-id', name: '写作', source: 'shortcut', started_at: new Date().toISOString() }),
-    ])
-    apiMocks.fetchCycleActivities.mockResolvedValue([
       historicalActivity(-3, { name: '整理' }),
       historicalActivity(-2, { name: '复盘' }),
-      activity({ id: 'current-id', name: '写作', source: 'shortcut', started_at: new Date().toISOString() }),
     ])
     apiMocks.switchActivity.mockResolvedValue(activity({ id: 'new-id', name: '阅读', source: 'manual' }))
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
@@ -192,12 +188,58 @@ describe('时间记录界面', () => {
     expect(confirm).not.toHaveBeenCalled()
   })
 
+  it('休息后第一次记录提示导出重置，确认后先导出再重置再记录', async () => {
+    const oldRecord = historicalActivity(-3, { name: '整理' })
+    mockCycleRows([oldRecord])
+    const newRecord = activity({ id: 'new-cycle-record', name: '阅读', source: 'manual' })
+    apiMocks.fetchCycleActivities.mockResolvedValueOnce([oldRecord])
+      .mockResolvedValueOnce([newRecord])
+    apiMocks.switchActivity.mockResolvedValue(newRecord)
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    const user = userEvent.setup()
+
+    render(<App />)
+    await screen.findByText('学习')
+
+    await user.type(screen.getByLabelText('活动名称'), '阅读')
+    await user.click(screen.getByRole('button', { name: '记录' }))
+
+    await waitFor(() => expect(apiMocks.switchActivity).toHaveBeenCalledWith('阅读', 'manual'))
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining('先导出并重置'))
+    expect(exportMocks.exportMarkdown).toHaveBeenCalledTimes(1)
+    expect(apiMocks.resetRecordCycle).toHaveBeenCalledTimes(1)
+    expect(apiMocks.deleteActivity).not.toHaveBeenCalled()
+    expect(exportMocks.exportMarkdown.mock.invocationCallOrder[0])
+      .toBeLessThan(apiMocks.resetRecordCycle.mock.invocationCallOrder[0])
+    expect(apiMocks.resetRecordCycle.mock.invocationCallOrder[0])
+      .toBeLessThan(apiMocks.switchActivity.mock.invocationCallOrder[0])
+    await waitFor(() => expect(screen.getAllByText('阅读').length).toBeGreaterThan(0))
+  })
+
+  it('休息后第一次记录取消提示时，不导出、不重置、不记录', async () => {
+    mockCycleRows([historicalActivity(-3, { name: '整理' })])
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    const user = userEvent.setup()
+
+    render(<App />)
+    await screen.findByText('整理')
+
+    await user.type(screen.getByLabelText('活动名称'), '阅读')
+    await user.click(screen.getByRole('button', { name: '记录' }))
+
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining('先导出并重置'))
+    expect(exportMocks.exportMarkdown).not.toHaveBeenCalled()
+    expect(apiMocks.resetRecordCycle).not.toHaveBeenCalled()
+    expect(apiMocks.switchActivity).not.toHaveBeenCalled()
+    expect(screen.getByLabelText('活动名称')).toHaveValue('阅读')
+  })
+
   it('只显示服务器确认的当前活动，不再显示秒或持续时长', async () => {
     render(<App />)
     expect((await screen.findAllByText('写作')).length).toBeGreaterThan(0)
     expect(screen.queryByText(/已持续/)).not.toBeInTheDocument()
     expect(screen.queryByText(/正在进行/)).not.toBeInTheDocument()
-    expect(apiMocks.fetchActivitiesByOverlap).toHaveBeenCalled()
+    expect(apiMocks.fetchCycleActivities).toHaveBeenCalled()
   })
 
   it('每条记录同时显示开始时刻与总时长，精确到分且不出现秒与区间', async () => {
@@ -205,7 +247,7 @@ describe('时间记录界面', () => {
     await screen.findAllByText('写作')
     expect(screen.queryByText(/\d{2}:\d{2}:\d{2}/)).not.toBeInTheDocument()
     expect(screen.queryByText(/～/)).not.toBeInTheDocument()
-    expect(screen.getAllByText(/^\d{2}时\d{2}分$/).length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/^\d{2}分$/).length).toBeGreaterThan(0)
   })
 
   it('默认按钮只填入输入框，自定义按钮立即切换', async () => {
@@ -223,15 +265,15 @@ describe('时间记录界面', () => {
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
     const user = userEvent.setup()
     render(<App />)
-    await screen.findAllByText('写作')
+    await screen.findAllByText('学习')
     await user.click(screen.getAllByRole('button', { name: '删除' })[0])
     expect(confirm).toHaveBeenCalled()
     await waitFor(() => expect(apiMocks.deleteActivity).toHaveBeenCalledWith('old-id'))
-    expect(apiMocks.fetchActivitiesByOverlap).toHaveBeenCalledTimes(2)
+    expect(apiMocks.fetchCycleActivities).toHaveBeenCalledTimes(2)
   })
 
   it('睡眠记录进行中时，记录与快捷按钮仍然可用', async () => {
-    apiMocks.fetchActivitiesByOverlap.mockResolvedValue([
+    mockCycleRows([
       activity({ id: 'sleep-id', name: '睡觉', ended_at: null, source: 'auto_sleep' }),
     ])
     const user = userEvent.setup()
@@ -261,10 +303,10 @@ describe('时间记录界面', () => {
     // 云端还没返回，本地已经能看到，且没有遮罩
     expect(screen.getAllByText('写周报').length).toBeGreaterThan(0)
     expect(screen.queryByRole('status')).not.toBeInTheDocument()
-    expect(apiMocks.fetchActivitiesByOverlap).toHaveBeenCalledTimes(1)
+    expect(apiMocks.fetchCycleActivities).toHaveBeenCalledTimes(1)
 
     release()
-    await waitFor(() => expect(apiMocks.fetchActivitiesByOverlap).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(apiMocks.fetchCycleActivities).toHaveBeenCalledTimes(2))
   })
 
   it('快速连点不会丢操作：请求排队按顺序全部执行', async () => {
@@ -272,7 +314,7 @@ describe('时间记录界面', () => {
       shortcut({ id: 'read-id', name: '阅读', is_default: false }),
       shortcut({ id: 'write-id', name: '写作', is_default: false }),
     ])
-    apiMocks.fetchActivitiesByOverlap.mockResolvedValue([
+    mockCycleRows([
       activity({ id: 'open-id', name: '整理', ended_at: null }),
     ])
 
@@ -537,7 +579,7 @@ describe('时间记录界面', () => {
     render(<App />)
     await screen.findByText(beijingMinute(startedAt))
     expect(screen.getAllByText(beijingMinute(startedAt)).length).toBeGreaterThan(0)
-    expect(screen.getAllByText('00时01分').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('01分').length).toBeGreaterThan(0)
   })
 
   it('重置先下载当前周期 Markdown，再开启新周期且不删除云端记录', async () => {
@@ -548,7 +590,7 @@ describe('时间记录界面', () => {
     ])
     const user = userEvent.setup()
     render(<App />)
-    await screen.findAllByText('写作')
+    await screen.findByText('复盘')
 
     await waitFor(() => expect(screen.getByRole('button', { name: '重置' })).toBeEnabled())
     await user.click(screen.getByRole('button', { name: '重置' }))
@@ -559,7 +601,7 @@ describe('时间记录界面', () => {
     expect(exportMocks.exportMarkdown).toHaveBeenCalledTimes(1)
     const [exportedRows] = exportMocks.exportMarkdown.mock.calls[0]
     expect(exportedRows.map((row: Activity) => row.name)).toEqual(
-      expect.arrayContaining(['整理', '复盘', '学习', '写作']),
+      expect.arrayContaining(['整理', '复盘']),
     )
   })
 
