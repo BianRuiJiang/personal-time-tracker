@@ -24,7 +24,7 @@ import {
   durationLabel,
   statisticalDay,
 } from './lib/time'
-import { exportMarkdown } from './lib/export'
+import { exportMarkdownToDirectory } from './lib/export-directory'
 import type { Activity, Shortcut } from './types'
 
 const REVEAL = 140
@@ -528,13 +528,26 @@ export default function App() {
     return [...byId.values()].sort((left, right) => left.started_at.localeCompare(right.started_at))
   }
 
-  function exportResetRows(rows: Activity[]) {
-    if (rows.length === 0) return
+  function resetExportLabel(rows: Activity[]) {
     const days = rows.map((record) => statisticalDay(new Date(record.started_at))).sort()
     const firstDay = days[0]
     const lastDay = days[days.length - 1]
-    const label = firstDay === lastDay ? firstDay : `${firstDay}_to_${lastDay}`
-    exportMarkdown(rows, label)
+    return firstDay === lastDay ? firstDay : `${firstDay}_to_${lastDay}`
+  }
+
+  async function exportResetRows(rows: Activity[]) {
+    if (rows.length === 0) return false
+    try {
+      await exportMarkdownToDirectory(rows, resetExportLabel(rows))
+      return true
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        setActionError('已取消目录选择，记录未重置')
+      } else {
+        setActionError(error instanceof Error ? error.message : '导出失败，记录未重置')
+      }
+      return false
+    }
   }
 
   function cycleResetRows() {
@@ -558,16 +571,18 @@ export default function App() {
     )
   }
 
-  function submitRecord(name: string, source: 'manual' | 'shortcut') {
+  async function submitRecord(name: string, source: 'manual' | 'shortcut') {
     if (shouldPromptCycleReset()) {
       if (!promptCycleReset()) return
 
-      setActivityName('')
       const rows = resetExportRows()
       const previousRecords = records
       const previousHistory = historyRecords
       // 必须先导出旧周期；数据库重置成功后再写入的新记录才属于新周期。
-      exportResetRows(rows)
+      const exported = await exportResetRows(rows)
+      if (!exported) return
+
+      setActivityName('')
       syncRecords(
         () => {
           const optimistic = optimisticRecord(name, source)
@@ -690,7 +705,7 @@ export default function App() {
   }
 
   // 重置：先下载当前周期 Markdown，再在数据库开启新周期；旧记录永久保留。
-  function resetAll() {
+  async function resetAll() {
     if (!session) return
     if (writePending.current > 0) {
       setActionError('记录正在同步，请稍后再重置')
@@ -703,7 +718,12 @@ export default function App() {
     }
     const previousRecords = records
     const previousHistory = historyRecords
-    exportResetRows(rows)
+    setSyncing(true)
+    const exported = await exportResetRows(rows)
+    if (!exported) {
+      setSyncing(false)
+      return
+    }
     syncRecords(
       () => {
         setRecords([])

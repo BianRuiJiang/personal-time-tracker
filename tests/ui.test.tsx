@@ -42,6 +42,7 @@ const supabaseMocks = vi.hoisted(() => {
 
 const exportMocks = vi.hoisted(() => ({
   exportMarkdown: vi.fn(),
+  exportMarkdownToDirectory: vi.fn(),
 }))
 
 vi.mock('../src/lib/api', () => apiMocks)
@@ -52,6 +53,7 @@ vi.mock('../src/lib/supabase', () => ({
 }))
 
 vi.mock('../src/lib/export', () => exportMocks)
+vi.mock('../src/lib/export-directory', () => exportMocks)
 
 const userId = '2d59cd70-04f3-4a92-a13b-6b3f2c9f24f1'
 const session = {
@@ -139,6 +141,7 @@ beforeEach(() => {
   apiMocks.deleteShortcut.mockResolvedValue(undefined)
   apiMocks.addShortcut.mockResolvedValue(undefined)
   exportMocks.exportMarkdown.mockClear()
+  exportMocks.exportMarkdownToDirectory.mockClear()
 })
 
 describe('时间记录界面', () => {
@@ -177,14 +180,14 @@ describe('时间记录界面', () => {
 
     await waitFor(() => expect(apiMocks.switchActivity).toHaveBeenCalledWith('阅读', 'manual'))
     expect(apiMocks.resetRecordCycle).not.toHaveBeenCalled()
-    expect(exportMocks.exportMarkdown).not.toHaveBeenCalled()
+    expect(exportMocks.exportMarkdownToDirectory).not.toHaveBeenCalled()
     expect(confirm).not.toHaveBeenCalled()
 
     await user.type(screen.getByLabelText('活动名称'), '运动')
     await user.click(screen.getByRole('button', { name: '记录' }))
     await waitFor(() => expect(apiMocks.switchActivity).toHaveBeenCalledWith('运动', 'manual'))
 
-    expect(exportMocks.exportMarkdown).not.toHaveBeenCalled()
+    expect(exportMocks.exportMarkdownToDirectory).not.toHaveBeenCalled()
     expect(confirm).not.toHaveBeenCalled()
   })
 
@@ -206,10 +209,10 @@ describe('时间记录界面', () => {
 
     await waitFor(() => expect(apiMocks.switchActivity).toHaveBeenCalledWith('阅读', 'manual'))
     expect(confirm).toHaveBeenCalledWith(expect.stringContaining('先导出并重置'))
-    expect(exportMocks.exportMarkdown).toHaveBeenCalledTimes(1)
+    expect(exportMocks.exportMarkdownToDirectory).toHaveBeenCalledTimes(1)
     expect(apiMocks.resetRecordCycle).toHaveBeenCalledTimes(1)
     expect(apiMocks.deleteActivity).not.toHaveBeenCalled()
-    expect(exportMocks.exportMarkdown.mock.invocationCallOrder[0])
+    expect(exportMocks.exportMarkdownToDirectory.mock.invocationCallOrder[0])
       .toBeLessThan(apiMocks.resetRecordCycle.mock.invocationCallOrder[0])
     expect(apiMocks.resetRecordCycle.mock.invocationCallOrder[0])
       .toBeLessThan(apiMocks.switchActivity.mock.invocationCallOrder[0])
@@ -228,7 +231,7 @@ describe('时间记录界面', () => {
     await user.click(screen.getByRole('button', { name: '记录' }))
 
     expect(confirm).toHaveBeenCalledWith(expect.stringContaining('先导出并重置'))
-    expect(exportMocks.exportMarkdown).not.toHaveBeenCalled()
+    expect(exportMocks.exportMarkdownToDirectory).not.toHaveBeenCalled()
     expect(apiMocks.resetRecordCycle).not.toHaveBeenCalled()
     expect(apiMocks.switchActivity).not.toHaveBeenCalled()
     expect(screen.getByLabelText('活动名称')).toHaveValue('阅读')
@@ -598,8 +601,8 @@ describe('时间记录界面', () => {
     expect(confirm).not.toHaveBeenCalled()
     await waitFor(() => expect(apiMocks.resetRecordCycle).toHaveBeenCalledTimes(1))
     expect(apiMocks.deleteActivity).not.toHaveBeenCalled()
-    expect(exportMocks.exportMarkdown).toHaveBeenCalledTimes(1)
-    const [exportedRows] = exportMocks.exportMarkdown.mock.calls[0]
+    expect(exportMocks.exportMarkdownToDirectory).toHaveBeenCalledTimes(1)
+    const [exportedRows] = exportMocks.exportMarkdownToDirectory.mock.calls[0]
     expect(exportedRows.map((row: Activity) => row.name)).toEqual(
       expect.arrayContaining(['整理', '复盘']),
     )
