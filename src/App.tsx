@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent as ReactFormEvent, PointerEvent as ReactPointerEvent } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { AuthForm } from './components/AuthForm'
+import { MeditationOverlay } from './components/MeditationOverlay'
 import { configError, supabase } from './lib/supabase'
 import {
   addShortcut,
@@ -230,6 +231,7 @@ export default function App() {
   const [editStart, setEditStart] = useState('')
   const [editEnd, setEditEnd] = useState('')
   const [editingError, setEditingError] = useState('')
+  const [meditationOpen, setMeditationOpen] = useState(false)
   const lastTouchRef = useRef(0)
   const displayRef = useRef<HTMLElement | null>(null)
   // 新增记录后需要把列表滚到底，让刚记的那条可见
@@ -866,6 +868,18 @@ export default function App() {
         <div className="header-actions">
           <button
             type="button"
+            className="meditation-btn"
+            onClick={() => setMeditationOpen(true)}
+            title="打开冥想"
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="9" />
+              <circle cx="12" cy="12" r="3.5" />
+            </svg>
+            冥想
+          </button>
+          <button
+            type="button"
             className="reset-btn"
             onClick={resetAll}
             disabled={syncing || (records.length === 0 && historyRecords.length === 0)}
@@ -1101,6 +1115,10 @@ export default function App() {
             </div>
           </form>
         </div>
+      )}
+
+      {meditationOpen && (
+        <MeditationOverlay onClose={() => setMeditationOpen(false)} />
       )}
     </div>
   )

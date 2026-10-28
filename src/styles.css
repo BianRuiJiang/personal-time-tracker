@@ -108,6 +108,25 @@ h1, h2, h3, p, ol, li { margin: 0; padding: 0; }
 .reset-btn:active:not(:disabled) { transform: scale(.97); }
 .reset-btn:disabled { opacity: .4; cursor: not-allowed; }
 
+.meditation-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 30px;
+  padding: 0 10px 0 8px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ink-2);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background .16s var(--ease), color .16s var(--ease);
+}
+
+.meditation-btn:hover { background: var(--accent-soft); color: var(--accent-deep); }
+.meditation-btn:active { transform: scale(.97); }
+
 /* 当前活动：整页视觉重心 */
 .current {
   flex: 0 0 auto;
@@ -724,4 +743,162 @@ label { display: grid; gap: 6px; font-size: 13px; color: var(--ink-2); }
   .editor-actions .primary {
     padding: 0 12px;
   }
+}
+
+/* ---------- 冥想遮罩 ---------- */
+.meditation-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(245, 245, 240, .96);
+}
+
+.meditation-panel {
+  width: min(100%, 340px);
+  display: grid;
+  gap: 16px;
+  padding: 26px 24px 20px;
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 0 18px 42px rgba(48, 54, 48, .14);
+  text-align: center;
+}
+
+.meditation-panel h2 {
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.meditation-rhythm {
+  color: var(--ink-2);
+  font-size: 13px;
+}
+
+.meditation-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.meditation-options button,
+.meditation-controls button,
+.meditation-done-actions button:not(.primary),
+.meditation-close {
+  height: 42px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--fill);
+  color: var(--ink-2);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background .16s var(--ease), color .16s var(--ease),
+              transform .2s var(--ease);
+}
+
+.meditation-options button:hover,
+.meditation-controls button:hover,
+.meditation-done-actions button:not(.primary):hover {
+  background: var(--accent-soft);
+  color: var(--accent-deep);
+}
+
+.meditation-options button:active,
+.meditation-controls button:active,
+.meditation-done-actions button:active,
+.meditation-close:active { transform: scale(.97); }
+
+.meditation-close {
+  height: 36px;
+  background: transparent;
+  color: var(--ink-3);
+}
+
+.meditation-close:hover { background: transparent; color: var(--accent); }
+
+.meditation-session {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 26px;
+}
+
+.meditation-breath-circle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: min(240px, 56vw);
+  height: min(240px, 56vw);
+  border-radius: 50%;
+  background: var(--accent-soft);
+  border: 2px solid rgba(100, 133, 107, .42);
+  box-shadow: 0 0 0 14px rgba(100, 133, 107, .08), 0 16px 40px rgba(100, 133, 107, .14);
+  color: var(--accent-deep);
+  font-size: 18px;
+  font-weight: 600;
+  will-change: transform;
+}
+
+/* 呼吸圆环：四个阶段对应缩放动画，切换阶段时由 key 重新触发 */
+.meditation-breath-circle.phase-in {
+  animation: meditation-breath-in 4s cubic-bezier(.45, .05, .35, 1) forwards;
+}
+
+.meditation-breath-circle.phase-hold {
+  animation: meditation-breath-hold 7s ease-in-out forwards;
+}
+
+.meditation-breath-circle.phase-out {
+  animation: meditation-breath-out 9s cubic-bezier(.45, .05, .35, 1) forwards;
+}
+
+.meditation-breath-circle.is-paused { animation-play-state: paused; }
+
+@keyframes meditation-breath-in {
+  from { transform: scale(.72); }
+  to { transform: scale(1); }
+}
+
+@keyframes meditation-breath-hold {
+  from { transform: scale(1); }
+  to { transform: scale(1); }
+}
+
+@keyframes meditation-breath-out {
+  from { transform: scale(1); }
+  to { transform: scale(.72); }
+}
+
+.meditation-countdown {
+  color: var(--info-text);
+  font-size: 26px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.meditation-controls {
+  display: flex;
+  gap: 10px;
+}
+
+.meditation-done-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.meditation-done-actions .primary {
+  height: 42px;
+  padding: 0 20px;
+  border-radius: 8px;
+}
+
+@media (max-width: 480px) {
+  .meditation-options { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .meditation-controls { flex-wrap: wrap; justify-content: center; }
+  .meditation-controls button { flex: 1 1 96px; }
 }
