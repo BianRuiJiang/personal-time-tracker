@@ -79,6 +79,8 @@ describe('移动端适配要点', () => {
     expect(css).toMatch(/\.calendar-grid \{[\s\S]{0,120}?grid-auto-rows:\s*42px/)
     expect(css).toMatch(/\.calendar-day \{[\s\S]{0,500}?height:\s*42px/)
     expect(css).toMatch(/@media \(max-width: 700px\)[\s\S]{0,1200}?\.archive-layout \{[^}]*grid-template-columns:\s*1fr/)
+    expect(css).toMatch(/@media \(max-width: 700px\)[\s\S]{0,1200}?\.archive-layout \{[^}]*grid-auto-rows:\s*max-content/)
+    expect(css).toMatch(/@media \(max-width: 700px\)[\s\S]{0,1200}?\.archive-detail-head \{[^}]*position:\s*static/)
     expect(css).toMatch(/@media \(max-width: 700px\)[\s\S]{0,1200}?\.archive-layout \{[^}]*overflow-y:\s*auto/)
   })
 
