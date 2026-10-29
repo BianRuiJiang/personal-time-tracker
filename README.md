@@ -46,7 +46,7 @@ npm run build
 
 已完成（当前仓库状态）：
 
-1. Supabase 数据库已应用 [`001_init.sql`](supabase/migrations/001_init.sql)、[`002_activity_update.sql`](supabase/migrations/002_activity_update.sql) 和 [`003_record_cycles.sql`](supabase/migrations/003_record_cycles.sql)。004_daily_cycles_and_exports.sql 提供每日 05:00 自动周期、导出状态和数据库面板所需 RPC；换环境部署前必须按编号顺序执行。
+1. Supabase 数据库已按顺序应用 [`001_init.sql`](supabase/migrations/001_init.sql)、[`002_activity_update.sql`](supabase/migrations/002_activity_update.sql)、[`003_record_cycles.sql`](supabase/migrations/003_record_cycles.sql) 和 [`004_daily_cycles_and_exports.sql`](supabase/migrations/004_daily_cycles_and_exports.sql)。004 提供每日 05:00 自动周期、导出状态和数据库面板所需 RPC，并已确认 Cron 按 UTC `0 21 * * *` 执行。
 2. Supabase **Authentication > URL Configuration** 已设置为 `https://bianruijiang.github.io/personal-time-tracker/`。
 3. GitHub **Actions > Variables** 已配置 `VITE_SUPABASE_URL` 与 `VITE_SUPABASE_PUBLISHABLE_KEY`。
 4. GitHub **Pages > Source** 已设为 GitHub Actions。

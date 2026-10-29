@@ -27,8 +27,9 @@
 - 数据库月历已改为固定 42px 日期格；窄窗口改为单列布局，详情从完整月历之后开始，不再遮挡日期。服务缓存已升到 `time-tracker-v6`。
 - 本地已通过 75 项测试、类型检查和生产构建。
 - `f70b4e1` 已推送到 `main`；GitHub Actions 第 27 次运行的测试、构建和 Pages 部署均成功，并已在线上复查月历、历史详情与下载按钮。
+- `004_daily_cycles_and_exports.sql` 已在远端 Supabase 执行并核验：周期/导出函数和字段齐全，Cron 为 `0 21 * * *`（北京时间每天 05:00），迁移前后 163 条活动记录保持不变。
 - 部署方式：推送 `main`，GitHub Actions 自动测试、构建并发布。
 - 线上地址：`https://bianruijiang.github.io/personal-time-tracker/`。
 
 ## 待办
-- 远程 Supabase 必须执行 `004_daily_cycles_and_exports.sql` 后，05:00 Cron、导出状态标记和数据库面板补下载才完整生效；当前会话没有已验证的数据库直连凭据。
+- 无。
