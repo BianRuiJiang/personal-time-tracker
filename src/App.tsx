@@ -2,13 +2,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent as ReactFormEvent, PointerEvent as ReactPointerEvent } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { AuthForm } from './components/AuthForm'
+import { ArchiveOverlay } from './components/ArchiveOverlay'
 import { MeditationOverlay } from './components/MeditationOverlay'
 import { configError, supabase } from './lib/supabase'
 import {
   addShortcut,
   deleteActivity,
   deleteShortcut,
-  fetchCurrentCycle,
+  ensureCurrentRecordCycle,
   fetchCycleActivities,
   fetchShortcuts,
   renameShortcut,
@@ -26,7 +27,7 @@ import {
   statisticalDay,
 } from './lib/time'
 import { exportMarkdownToDirectory } from './lib/export-directory'
-import type { Activity, Shortcut } from './types'
+import type { Activity, RecordCycle, Shortcut } from './types'
 
 const REVEAL = 140
 
@@ -39,6 +40,7 @@ function newId() {
 }
 
 interface RowProps {
+  dateText: string
   name: string
   timeText: string
   durationText: string
@@ -53,7 +55,7 @@ interface RowProps {
 // 左滑露出删除。
 // 拖动过程直接改 DOM 的 transform，不触发 React 渲染 —— 这是之前卡顿的根因。
 function SwipeRow({
-  name, timeText, durationText, ongoing, open, onOpen, onClose, onEdit, onDelete,
+  dateText, name, timeText, durationText, ongoing, open, onOpen, onClose, onEdit, onDelete,
 }: RowProps) {
   const surfaceRef = useRef<HTMLDivElement | null>(null)
   const offset = useRef(0)
@@ -204,6 +206,7 @@ function SwipeRow({
       >
         <span className="row-name">{name}</span>
         <span className="row-meta">
+          <span className="row-date">{dateText}</span>
           <span className="row-time">{timeText}</span>
           <span className="row-duration">{durationText}</span>
         </span>
@@ -218,6 +221,7 @@ export default function App() {
   const [shortcuts, setShortcuts] = useState<Shortcut[]>([])
   const [records, setRecords] = useState<Activity[]>([])
   const [historyRecords, setHistoryRecords] = useState<Activity[]>([])
+  const [currentCycle, setCurrentCycle] = useState<RecordCycle | null>(null)
   const [activityName, setActivityName] = useState('')
   const [actionError, setActionError] = useState('')
   const [interactionError, setInteractionError] = useState('')
@@ -225,13 +229,15 @@ export default function App() {
   const [managing, setManaging] = useState(false)
   const [openId, setOpenId] = useState<string | null>(null)
   const [newShortcut, setNewShortcut] = useState('')
-  const [, setNow] = useState(() => new Date())
+  const [now, setNow] = useState(() => new Date())
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editName, setEditName] = useState('')
   const [editStart, setEditStart] = useState('')
   const [editEnd, setEditEnd] = useState('')
   const [editingError, setEditingError] = useState('')
   const [meditationOpen, setMeditationOpen] = useState(false)
+  const [archiveOpen, setArchiveOpen] = useState(false)
+  const [resetMenu, setResetMenu] = useState<{ x: number; y: number } | null>(null)
   const lastTouchRef = useRef(0)
   const displayRef = useRef<HTMLElement | null>(null)
   // 新增记录后需要把列表滚到底，让刚记的那条可见
@@ -275,10 +281,11 @@ export default function App() {
   const loadCycleData = useCallback(async () => {
     if (!session) return
     const requestId = ++cycleRequest.current
-    const cycle = await fetchCurrentCycle()
+    const cycle = await ensureCurrentRecordCycle()
     if (requestId !== cycleRequest.current) return
     const cycleRows = await fetchCycleActivities(cycle.started_at)
     if (requestId !== cycleRequest.current) return
+    setCurrentCycle(cycle)
     setRecords(cycleRows)
     setHistoryRecords(cycleRows)
   }, [session])
@@ -311,6 +318,7 @@ export default function App() {
       setShortcuts([])
       setRecords([])
       setHistoryRecords([])
+      setCurrentCycle(null)
       setEditingId(null)
       setOpenId(null)
       return
@@ -360,11 +368,32 @@ export default function App() {
 
   // 30 秒刷新一次即可，界面只展示到分钟，不出现秒数跳动。
   useEffect(() => {
+    let statDay = statisticalDay()
     const timer = window.setInterval(() => {
       setNow(new Date())
+      const nextDay = statisticalDay()
+      if (nextDay !== statDay) {
+        statDay = nextDay
+        reloadCycleData()
+      }
     }, 30_000)
     return () => window.clearInterval(timer)
-  }, [])
+  }, [reloadCycleData])
+
+  useEffect(() => {
+    if (!resetMenu) return
+    function closeMenu() {
+      setResetMenu(null)
+    }
+    window.addEventListener('click', closeMenu)
+    window.addEventListener('resize', closeMenu)
+    window.addEventListener('scroll', closeMenu, true)
+    return () => {
+      window.removeEventListener('click', closeMenu)
+      window.removeEventListener('resize', closeMenu)
+      window.removeEventListener('scroll', closeMenu, true)
+    }
+  }, [resetMenu])
 
   useEffect(() => {
     if (!session) return
@@ -537,6 +566,10 @@ export default function App() {
     return firstDay === lastDay ? firstDay : `${firstDay}_to_${lastDay}`
   }
 
+  function resetExportFileName(rows: Activity[]) {
+    return `time-records-${resetExportLabel(rows)}.md`
+  }
+
   async function exportResetRows(rows: Activity[]) {
     if (rows.length === 0) return false
     try {
@@ -578,6 +611,7 @@ export default function App() {
       if (!promptCycleReset()) return
 
       const rows = resetExportRows()
+      const exportFileName = resetExportFileName(rows)
       const previousRecords = records
       const previousHistory = historyRecords
       // 必须先导出旧周期；数据库重置成功后再写入的新记录才属于新周期。
@@ -592,7 +626,8 @@ export default function App() {
           setHistoryRecords([optimistic])
         },
         async () => {
-          await resetRecordCycle()
+          const nextCycle = await resetRecordCycle(exportFileName)
+          setCurrentCycle(nextCycle)
           return switchActivity(name, source)
         },
         () => {
@@ -731,13 +766,30 @@ export default function App() {
         setRecords([])
         setHistoryRecords([])
       },
-      () => resetRecordCycle(),
+      () => resetRecordCycle(resetExportFileName(rows)),
       () => {
         setRecords(previousRecords)
         setHistoryRecords(previousHistory)
       },
+      (nextCycle) => setCurrentCycle(nextCycle),
     )
   }
+
+  function openArchive() {
+    setResetMenu(null)
+    setArchiveOpen(true)
+  }
+
+  const currentCycleLabel = useMemo(() => {
+    const startDay = currentCycle ? statisticalDay(new Date(currentCycle.started_at)) : statisticalDay(now)
+    const endDay = statisticalDay(now)
+    return startDay === endDay ? startDay : `${startDay} 至 ${endDay}`
+  }, [currentCycle, now])
+
+  const resetMenuStyle = resetMenu ? {
+    left: Math.min(resetMenu.x, Math.max(16, window.innerWidth - 176)),
+    top: Math.min(resetMenu.y, Math.max(16, window.innerHeight - 88)),
+  } : undefined
 
   const orderedShortcuts = draftOrder ?? shortcuts
 
@@ -882,8 +934,14 @@ export default function App() {
             type="button"
             className="reset-btn"
             onClick={resetAll}
+            onContextMenu={(event) => {
+              event.preventDefault()
+              setResetMenu({ x: event.clientX, y: event.clientY })
+            }}
             disabled={syncing || (records.length === 0 && historyRecords.length === 0)}
-            title="先导出当前周期 Markdown，再开始新周期"
+            title="左键导出并重置；右键进入数据库"
+            aria-haspopup="menu"
+            aria-expanded={resetMenu !== null}
           >
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
@@ -893,6 +951,14 @@ export default function App() {
           </button>
         </div>
       </header>
+
+      {resetMenu && (
+        <div className="context-menu" role="menu" style={resetMenuStyle}>
+          <button type="button" role="menuitem" onClick={openArchive}>
+            进入数据库
+          </button>
+        </div>
+      )}
 
       <section className="current" aria-live="polite">
         {current ? (
@@ -906,8 +972,8 @@ export default function App() {
       </section>
 
       <div className="history-head">
-        <h3>未导出记录</h3>
-        <span className="history-day">当前周期</span>
+        <h3>{currentCycle?.exported_at ? '已导出记录' : '未导出记录'}</h3>
+        <span className="history-day">{currentCycleLabel}</span>
       </div>
 
       <main className="display" ref={displayRef} aria-label="今日记录列表">
@@ -918,6 +984,7 @@ export default function App() {
             {cycleSegments.map((segment) => (
               <SwipeRow
                 key={segment.id}
+                dateText={statisticalDay(new Date(segment.started_at))}
                 name={segment.name}
                 timeText={beijingClockLabel(segment.started_at)}
                 durationText={durationLabel(segment.started_at, segment.ended_at)}
@@ -1119,6 +1186,13 @@ export default function App() {
 
       {meditationOpen && (
         <MeditationOverlay onClose={() => setMeditationOpen(false)} />
+      )}
+
+      {archiveOpen && (
+        <ArchiveOverlay
+          onClose={() => setArchiveOpen(false)}
+          onError={setActionError}
+        />
       )}
     </div>
   )

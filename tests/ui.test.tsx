@@ -19,8 +19,12 @@ const apiMocks = vi.hoisted(() => ({
   reorderShortcuts: vi.fn(),
   fetchActivitiesByOverlap: vi.fn(),
   fetchCurrentCycle: vi.fn(),
+  ensureCurrentRecordCycle: vi.fn(),
   fetchCycleActivities: vi.fn(),
+  fetchRecordCycles: vi.fn(),
+  fetchAllActivities: vi.fn(),
   resetRecordCycle: vi.fn(),
+  markCycleExported: vi.fn(),
   deleteActivity: vi.fn(),
   updateActivity: vi.fn(),
 }))
@@ -93,6 +97,8 @@ function cycle(partial: Partial<RecordCycle> = {}): RecordCycle {
     user_id: userId,
     started_at: startedAt,
     ended_at: null,
+    exported_at: null,
+    export_file_name: null,
     created_at: startedAt,
     ...partial,
   }
@@ -130,6 +136,12 @@ beforeEach(() => {
     activity({ id: 'current-id', name: '写作', source: 'shortcut', started_at: new Date().toISOString() }),
   ])
   apiMocks.fetchCurrentCycle.mockResolvedValue(cycle())
+  apiMocks.ensureCurrentRecordCycle.mockResolvedValue(cycle({ started_at: dayStart.toISOString() }))
+  apiMocks.fetchRecordCycles.mockResolvedValue([cycle({ started_at: dayStart.toISOString() })])
+  apiMocks.fetchAllActivities.mockResolvedValue([])
+  apiMocks.markCycleExported.mockResolvedValue(
+    cycle({ exported_at: new Date().toISOString(), export_file_name: 'time-records-test.md' }),
+  )
   apiMocks.resetRecordCycle.mockResolvedValue(cycle({ id: 'next-cycle-id', started_at: new Date().toISOString() }))
   apiMocks.switchActivity.mockResolvedValue(activity({ id: 'new-id', name: '阅读', source: 'shortcut' }))
   apiMocks.updateActivity.mockImplementation((_id: string, values: Partial<Activity>) =>
@@ -160,6 +172,68 @@ describe('时间记录界面', () => {
     expect(screen.queryByLabelText('未导出记录提醒')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '导出并清空' })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: '重置' })).toBeEnabled()
+  })
+
+  it('记录抬头和每条记录都只显示年月日', async () => {
+    render(<App />)
+    await screen.findAllByText('写作')
+
+    expect(screen.getAllByText(statisticalDay()).length).toBeGreaterThan(0)
+    expect(document.querySelector('.history-day')?.textContent).toBe(statisticalDay())
+    expect(document.querySelector('.row-date')?.textContent).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+  })
+
+  it('右键重置进入数据库，日历区分导出状态并可下载标记旧周期', async () => {
+    const previousDayStart = dayRange(shiftDate(statisticalDay(), -1)).start
+    const currentDayStart = dayRange(statisticalDay()).start
+    apiMocks.ensureCurrentRecordCycle.mockResolvedValue(
+      cycle({ id: 'current-cycle', started_at: currentDayStart.toISOString() }),
+    )
+    apiMocks.fetchCycleActivities.mockResolvedValue([
+      activity({ id: 'today-record', name: '写作', started_at: new Date().toISOString() }),
+    ])
+    apiMocks.fetchRecordCycles.mockResolvedValue([
+      cycle({
+        id: 'previous-cycle',
+        started_at: previousDayStart.toISOString(),
+        ended_at: currentDayStart.toISOString(),
+        exported_at: previousDayStart.toISOString(),
+        export_file_name: 'time-records-old.md',
+      }),
+      cycle({ id: 'current-cycle', started_at: currentDayStart.toISOString() }),
+    ])
+    apiMocks.fetchAllActivities.mockResolvedValue([
+      activity({
+        id: 'previous-record',
+        name: '整理',
+        started_at: new Date(previousDayStart.getTime() + 60_000).toISOString(),
+        ended_at: new Date(previousDayStart.getTime() + 120_000).toISOString(),
+      }),
+      activity({ id: 'today-record', name: '写作', started_at: new Date().toISOString() }),
+    ])
+    const user = userEvent.setup()
+    render(<App />)
+    await screen.findAllByText('写作')
+
+    fireEvent.contextMenu(screen.getByRole('button', { name: /重置/ }))
+    await user.click(screen.getByRole('menuitem', { name: '进入数据库' }))
+
+    expect(await screen.findByRole('dialog', { name: '数据库记录' })).toBeInTheDocument()
+    const exportedDay = await waitFor(() => {
+      const day = document.querySelector<HTMLElement>('.calendar-day.exported')
+      expect(day).not.toBeNull()
+      return day!
+    })
+    fireEvent.click(exportedDay)
+    await screen.findByText('整理')
+    expect(document.querySelector('.calendar-day.exported')).not.toBeNull()
+    expect(document.querySelector('.calendar-day.unexported')).not.toBeNull()
+
+    await user.click(screen.getByRole('button', { name: '下载' }))
+    await waitFor(() => expect(apiMocks.markCycleExported).toHaveBeenCalledTimes(1))
+    expect(exportMocks.exportMarkdown).toHaveBeenCalledTimes(1)
+    expect(exportMocks.exportMarkdown.mock.invocationCallOrder[0])
+      .toBeLessThan(apiMocks.markCycleExported.mock.invocationCallOrder[0])
   })
 
   it('同一周期当天已有记录时，继续记录不触发重置提示', async () => {

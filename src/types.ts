@@ -25,5 +25,7 @@ export interface RecordCycle {
   user_id: string
   started_at: string
   ended_at: string | null
+  exported_at: string | null
+  export_file_name: string | null
   created_at: string
 }

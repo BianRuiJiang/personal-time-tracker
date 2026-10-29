@@ -90,6 +90,56 @@ export async function fetchCurrentCycle() {
   return data
 }
 
+export async function ensureCurrentRecordCycle() {
+  const { data, error } = await supabase
+    .rpc('ensure_daily_record_cycle')
+    .single<RecordCycle>()
+  if (error) {
+    if (isMissingRpc(error)) return fetchCurrentCycle()
+    throw new Error(error.message)
+  }
+  return data
+}
+
+function isMissingRpc(error: { code?: string | null; message?: string | null }) {
+  return error.code === 'PGRST202' ||
+    /could not find the function/i.test(error.message ?? '')
+}
+
+export async function fetchRecordCycles() {
+  const pageSize = 1000
+  const rows: RecordCycle[] = []
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await supabase
+      .from('record_cycles')
+      .select('*')
+      .order('started_at')
+      .range(from, from + pageSize - 1)
+      .returns<RecordCycle[]>()
+    if (error) throw new Error(error.message)
+    rows.push(...data)
+    if (data.length < pageSize) break
+  }
+  return rows
+}
+
+export async function fetchAllActivities() {
+  const pageSize = 1000
+  const rows: Activity[] = []
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await supabase
+      .from('activities')
+      .select('*')
+      .order('started_at')
+      .range(from, from + pageSize - 1)
+      .returns<Activity[]>()
+    if (error) throw new Error(error.message)
+    rows.push(...data)
+    if (data.length < pageSize) break
+  }
+  return rows
+}
+
 export async function fetchActivitiesByOverlap(startIso: string, endIso: string, cycleStartIso: string) {
   const { data, error } = await supabase
     .from('activities')
@@ -121,9 +171,30 @@ export async function fetchCycleActivities(cycleStartIso: string) {
   return rows
 }
 
-export async function resetRecordCycle() {
+export async function resetRecordCycle(exportFileName?: string) {
   const { data, error } = await supabase
-    .rpc('reset_record_cycle')
+    .rpc('reset_record_cycle', exportFileName ? { p_export_file_name: exportFileName } : {})
+    .single<RecordCycle>()
+  if (error) {
+    // 旧数据库没有导出文件参数；手动导出已经成功，仍允许切换周期。
+    if (isMissingRpc(error)) return resetLegacyRecordCycle()
+    throw new Error(error.message)
+  }
+  return data
+}
+
+async function resetLegacyRecordCycle() {
+  const { data, error } = await supabase.rpc('reset_record_cycle').single<RecordCycle>()
+  if (error) throw new Error(error.message)
+  return data
+}
+
+export async function markCycleExported(cycleId: string, exportFileName: string) {
+  const { data, error } = await supabase
+    .rpc('mark_cycle_exported', {
+      p_cycle_id: cycleId,
+      p_export_file_name: exportFileName,
+    })
     .single<RecordCycle>()
   if (error) throw new Error(error.message)
   return data

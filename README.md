@@ -11,11 +11,11 @@
 1. 用邮箱和密码注册或登录。
 2. 在底部输入框写下正在做的事，点「记录」；或点自定义快捷按钮直接切换。
 3. 中间列表按天展示记录，每条显示开始时刻与总时长。当前进行中的那条有绿色左条与描边。
-4. 右上角「重置」会先下载当前周期全部记录的 Markdown，再在数据库开启新周期；手机和电脑都保留这个入口。
+4. 右上角「重置」左键会先写入当前周期全部记录的 Markdown，再在数据库开启新周期；右键可打开「数据库」面板。
 5. 左滑单条记录露出「修改」和「删除」，可修正活动名称、开始时间和结束时间。
 6. 长按自定义快捷按钮可像移动桌面图标一样拖动排序。
-7. 记录周期从 05:00 到次日 05:00。跨周期不自动清空，需要手动点「重置」完成导出并开启新周期。
-8. 每个周期在数据库单独保存，重置不会删除旧活动记录；界面只展示当前周期。
+7. 记录周期从 05:00 到次日 05:00；跨过边界后自动开启新周期，旧记录永久保留。
+8. 「数据库」面板提供月历、全部记录和逐周期下载；日历背景区分已导出与未导出，补下载成功后会标记周期。
 
 写入策略：先在本地立即渲染，再同步到云端。同步失败会回滚到服务器状态并提示，不做离线队列。
 
@@ -23,8 +23,8 @@
 
 统一使用 `Asia/Shanghai`。
 
-- 统计日从每天 05:00 到次日 05:00。
-- 跨过统计日不会自动删除、清空或提醒；导出和开启新周期统一由「重置」手动触发。
+- 统计日从每天 05:00 到次日 05:00；每天 05:00 自动开启新周期，页面加载时也会补齐错过的切换。
+- 重置只切换周期并记录导出状态，不删除活动记录；历史记录可在「数据库」面板查看和补下载。
 - 每天 23:00 自动结束当前活动并开始「睡觉」，次日 07:00 结束睡眠。
 - 睡眠期间可以从界面直接记录新活动，切换时「睡觉」会在切换时刻自动结束。
 - 连续 120 分钟无交互自动结束当前活动，结束时间按最后一次交互加 120 分钟计算。
@@ -46,7 +46,7 @@ npm run build
 
 已完成（当前仓库状态）：
 
-1. Supabase 数据库已应用 [`001_init.sql`](supabase/migrations/001_init.sql)、[`002_activity_update.sql`](supabase/migrations/002_activity_update.sql) 和 [`003_record_cycles.sql`](supabase/migrations/003_record_cycles.sql)。003 用于保留每个周期和全部历史记录，换环境部署前必须执行。
+1. Supabase 数据库已应用 [`001_init.sql`](supabase/migrations/001_init.sql)、[`002_activity_update.sql`](supabase/migrations/002_activity_update.sql) 和 [`003_record_cycles.sql`](supabase/migrations/003_record_cycles.sql)。004_daily_cycles_and_exports.sql 提供每日 05:00 自动周期、导出状态和数据库面板所需 RPC；换环境部署前必须按编号顺序执行。
 2. Supabase **Authentication > URL Configuration** 已设置为 `https://bianruijiang.github.io/personal-time-tracker/`。
 3. GitHub **Actions > Variables** 已配置 `VITE_SUPABASE_URL` 与 `VITE_SUPABASE_PUBLISHABLE_KEY`。
 4. GitHub **Pages > Source** 已设为 GitHub Actions。

@@ -37,6 +37,33 @@ beforeAll(async () => {
   await db.exec(productionSql)
   await db.exec(readFileSync(resolve(process.cwd(), 'supabase/migrations/002_activity_update.sql'), 'utf8'))
   await db.exec(readFileSync(resolve(process.cwd(), 'supabase/migrations/003_record_cycles.sql'), 'utf8'))
+  // PGlite 没装 pg_cron；这里只模拟定时任务登记接口，真实调度交给 Supabase。
+  await db.exec(`
+    create schema cron;
+    create table cron.job (
+      jobid bigint primary key,
+      jobname text not null unique,
+      schedule text not null,
+      command text not null
+    );
+    create function cron.unschedule(p_jobid bigint) returns boolean
+    language sql as $cron$ delete from cron.job where jobid = p_jobid returning true $cron$;
+    create function cron.schedule(p_jobname text, p_schedule text, p_command text) returns bigint
+    language plpgsql as $cron$
+    declare
+      v_id bigint;
+    begin
+      delete from cron.job where jobname = p_jobname;
+      insert into cron.job values (nextval('public.cron_job_id'), p_jobname, p_schedule, p_command)
+      returning jobid into v_id;
+      return v_id;
+    end;
+    $cron$;
+    create sequence public.cron_job_id;
+    grant usage on schema cron to authenticated;
+    grant select on cron.job to authenticated;
+  `)
+  await db.exec(readFileSync(resolve(process.cwd(), 'supabase/migrations/004_daily_cycles_and_exports.sql'), 'utf8'))
   await db.exec(`
     insert into auth.users (id, email) values ('${user1}', 'one@example.com'), ('${user2}', 'two@example.com');
   `)
@@ -280,5 +307,84 @@ describe('数据库核心规则', () => {
     expect(cycles.some((item) => item.ended_at !== null)).toBe(true)
     expect(Number(after[0].count)).toBe(Number(before[0].count) + 1)
     expect(openActivities).toEqual([])
+  })
+
+  it('跨过 05:00 自动开启新周期，旧周期和旧记录保留', async () => {
+    await become(user1)
+    const before = await query<{ count: string }>(
+      'select count(*)::text as count from public.activities where user_id = $1', [user1],
+    )
+    await query("select public.switch_activity('自动重置前记录', 'manual')")
+    await become(null, 'postgres')
+    await db.exec(`
+      update public.activities
+      set started_at = clock_timestamp() - interval '2 days'
+      where user_id = '${user1}' and ended_at is null;
+      update public.record_cycles
+      set started_at = clock_timestamp() - interval '2 days'
+      where user_id = '${user1}' and ended_at is null;
+    `)
+    await become(user1)
+
+    const next = await query<{ id: string; started_at: string }>(
+      'select * from public.ensure_daily_record_cycle()',
+    )
+    await become(null, 'postgres')
+    const cycles = await query<{ id: string; started_at: string; ended_at: string | null }>(
+      `select id, started_at, ended_at from public.record_cycles
+       where user_id = $1 order by started_at`, [user1],
+    )
+    const boundaryRows = await query<{ boundary: string }>(`
+      select case
+        when (clock_timestamp() at time zone 'Asia/Shanghai')::time < time '05:00'
+          then (((clock_timestamp() at time zone 'Asia/Shanghai')::date - 1) + time '05:00')
+               at time zone 'Asia/Shanghai'
+        else ((clock_timestamp() at time zone 'Asia/Shanghai')::date + time '05:00')
+             at time zone 'Asia/Shanghai'
+      end as boundary
+    `)
+    const after = await query<{ count: string }>(
+      'select count(*)::text as count from public.activities where user_id = $1', [user1],
+    )
+    await become(user1)
+    const current = await query<{ id: string }>(
+      'select id from public.record_cycles where user_id = $1 and ended_at is null', [user1],
+    )
+
+    expect(new Date(next[0].started_at).toISOString())
+      .toBe(new Date(boundaryRows[0].boundary).toISOString())
+    expect(current).toEqual([{ id: next[0].id }])
+    expect(cycles.some((item) => item.id !== next[0].id && item.ended_at !== null)).toBe(true)
+    expect(Number(after[0].count)).toBe(Number(before[0].count) + 1)
+  })
+
+  it('05:00 定时任务登记为北京时间，旧周期可安全标记已导出', async () => {
+    const jobs = await query<{ jobname: string; schedule: string; command: string }>(
+      'select jobname, schedule, command from cron.job',
+    )
+    expect(jobs).toEqual([{
+      jobname: 'daily-record-cycle-reset',
+      schedule: '0 21 * * *',
+      command: ' select public.ensure_all_daily_record_cycles(); ',
+    }])
+
+    await become(user1)
+    const cycleRows = await query<{ id: string }>(
+      'select id from public.record_cycles where user_id = $1 and ended_at is null', [user1],
+    )
+    await query("select public.switch_activity('导出标记前记录', 'manual')")
+    await become(null, 'postgres')
+    await db.exec(`
+      update public.activities
+      set started_at = clock_timestamp() - interval '1 millisecond'
+      where user_id = '${user1}' and ended_at is null;
+    `)
+    await become(user1)
+    const marked = await query<{ exported_at: string; export_file_name: string }>(
+      `select * from public.mark_cycle_exported('${cycleRows[0].id}', 'time-records-auto.md')`,
+    )
+
+    expect(marked[0].exported_at).not.toBeNull()
+    expect(marked[0].export_file_name).toBe('time-records-auto.md')
   })
 })
