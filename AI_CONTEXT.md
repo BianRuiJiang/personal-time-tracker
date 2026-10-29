@@ -24,8 +24,9 @@
 - 数据库重置测试已去除毫秒同帧导致的偶发失败；线上数据库函数未变更。
 - 已新增 `004_daily_cycles_and_exports.sql`：周期导出字段、北京时间 05:00 自动切换、全部用户 Cron、导出标记 RPC；PGlite 测试覆盖边界切换、保留记录、Cron 表达式和标记权限。
 - 已新增数据库面板和 `YYYY-MM-DD` 记录日期；前端对旧数据库缺 RPC 做兼容回退，避免迁移前阻断记录。
-- 本地已通过 74 项测试、类型检查和生产构建；服务缓存已升到 `time-tracker-v5`。
-- `89591ae` 已推送到 `main`；GitHub Actions 第 24 次运行的测试、构建和 Pages 部署均成功。
+- 数据库月历已改为固定 42px 日期格；窄窗口改为单列布局，详情从完整月历之后开始，不再遮挡日期。服务缓存已升到 `time-tracker-v6`。
+- 本地已通过 75 项测试、类型检查和生产构建。
+- `f70b4e1` 已推送到 `main`；GitHub Actions 第 27 次运行的测试、构建和 Pages 部署均成功，并已在线上复查月历、历史详情与下载按钮。
 - 部署方式：推送 `main`，GitHub Actions 自动测试、构建并发布。
 - 线上地址：`https://bianruijiang.github.io/personal-time-tracker/`。
 
