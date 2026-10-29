@@ -75,6 +75,13 @@ describe('移动端适配要点', () => {
     expect(css).toMatch(/\.composer \{[\s\S]{0,600}?overflow-y:\s*auto/)
   })
 
+  it('数据库月历使用固定日期格，窄屏切换为单列且不再挤压重叠', () => {
+    expect(css).toMatch(/\.calendar-grid \{[\s\S]{0,120}?grid-auto-rows:\s*42px/)
+    expect(css).toMatch(/\.calendar-day \{[\s\S]{0,500}?height:\s*42px/)
+    expect(css).toMatch(/@media \(max-width: 700px\)[\s\S]{0,1200}?\.archive-layout \{[^}]*grid-template-columns:\s*1fr/)
+    expect(css).toMatch(/@media \(max-width: 700px\)[\s\S]{0,1200}?\.archive-layout \{[^}]*overflow-y:\s*auto/)
+  })
+
   it('安全区使用 env(safe-area-inset)', () => {
     expect(css).toContain('env(safe-area-inset-top)')
     expect(css).toContain('env(safe-area-inset-bottom)')
