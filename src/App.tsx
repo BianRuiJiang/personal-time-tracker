@@ -40,7 +40,6 @@ function newId() {
 }
 
 interface RowProps {
-  dateText: string
   name: string
   timeText: string
   durationText: string
@@ -55,7 +54,7 @@ interface RowProps {
 // 左滑露出删除。
 // 拖动过程直接改 DOM 的 transform，不触发 React 渲染 —— 这是之前卡顿的根因。
 function SwipeRow({
-  dateText, name, timeText, durationText, ongoing, open, onOpen, onClose, onEdit, onDelete,
+  name, timeText, durationText, ongoing, open, onOpen, onClose, onEdit, onDelete,
 }: RowProps) {
   const surfaceRef = useRef<HTMLDivElement | null>(null)
   const offset = useRef(0)
@@ -206,7 +205,6 @@ function SwipeRow({
       >
         <span className="row-name">{name}</span>
         <span className="row-meta">
-          <span className="row-date">{dateText}</span>
           <span className="row-time">{timeText}</span>
           <span className="row-duration">{durationText}</span>
         </span>
@@ -984,7 +982,6 @@ export default function App() {
             {cycleSegments.map((segment) => (
               <SwipeRow
                 key={segment.id}
-                dateText={statisticalDay(new Date(segment.started_at))}
                 name={segment.name}
                 timeText={beijingClockLabel(segment.started_at)}
                 durationText={durationLabel(segment.started_at, segment.ended_at)}

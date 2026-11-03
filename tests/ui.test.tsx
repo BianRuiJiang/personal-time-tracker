@@ -174,13 +174,13 @@ describe('时间记录界面', () => {
     expect(screen.getByRole('button', { name: '重置' })).toBeEnabled()
   })
 
-  it('记录抬头和每条记录都只显示年月日', async () => {
+  it('日期只显示在记录抬头，不进入记录条', async () => {
     render(<App />)
     await screen.findAllByText('写作')
 
     expect(screen.getAllByText(statisticalDay()).length).toBeGreaterThan(0)
     expect(document.querySelector('.history-day')?.textContent).toBe(statisticalDay())
-    expect(document.querySelector('.row-date')?.textContent).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+    expect(document.querySelector('.row-date')).not.toBeInTheDocument()
   })
 
   it('右键重置进入数据库，日历区分导出状态并可下载标记旧周期', async () => {
@@ -219,6 +219,7 @@ describe('时间记录界面', () => {
     await user.click(screen.getByRole('menuitem', { name: '进入数据库' }))
 
     expect(await screen.findByRole('dialog', { name: '数据库记录' })).toBeInTheDocument()
+    expect(document.querySelector('.archive-record-meta')?.textContent).not.toMatch(/\d{4}-\d{2}-\d{2}/)
     const exportedDay = await waitFor(() => {
       const day = document.querySelector<HTMLElement>('.calendar-day.exported')
       expect(day).not.toBeNull()

@@ -315,7 +315,6 @@ export function ArchiveOverlay({ onClose, onError }: ArchiveOverlayProps) {
                             <span>{SOURCE_LABELS[record.source]}</span>
                           </div>
                           <div className="archive-record-meta">
-                            <span>{statisticalDay(new Date(record.started_at))}</span>
                             <span>
                               {beijingClockLabel(record.started_at)}
                               {record.ended_at ? `-${beijingClockLabel(record.ended_at)}` : '-进行中'}
