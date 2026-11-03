@@ -1,5 +1,5 @@
 // 主屏启动缓存：静态外壳和构建资源走缓存，Supabase 数据仍始终请求网络。
-const CACHE = 'time-tracker-v9'
+const CACHE = 'time-tracker-v10'
 const CORE = ['./', './index.html', './manifest.webmanifest']
 
 self.addEventListener('install', (event) => {

@@ -4,7 +4,7 @@ import {
   fetchRecordCycles,
   markCycleExported,
 } from '../lib/api'
-import { exportMarkdown } from '../lib/export'
+import { exportMarkdownToDirectory } from '../lib/export-directory'
 import {
   beijingClockLabel,
   durationLabel,
@@ -194,7 +194,10 @@ export function ArchiveOverlay({ onClose, onError }: ArchiveOverlayProps) {
       })
   }, [cycles, selectedRecords])
 
-  const unexportedCount = cycles.filter((cycle) => !cycle.exported_at).length
+  // 没有记录的周期没有可下载内容，不应计入未导出数量。
+  const unexportedCount = cycles.filter((cycle) => (
+    !cycle.exported_at && (recordsByCycle.get(cycle.id)?.length ?? 0) > 0
+  )).length
 
   function cycleForDay(day: string) {
     const rows = recordsByDay.get(day)
@@ -222,11 +225,16 @@ export function ArchiveOverlay({ onClose, onError }: ArchiveOverlayProps) {
     setExportingId(cycle.id)
     try {
       const fileName = cycleFileName(cycle)
-      exportMarkdown(rows, fileName.replace(/^time-records-/, '').replace(/\.md$/, ''))
+      const dayLabel = fileName.replace(/^time-records-/, '').replace(/\.md$/, '')
+      await exportMarkdownToDirectory(rows, dayLabel)
       const updated = await markCycleExported(cycle.id, fileName)
       setCycles((items) => items.map((item) => item.id === updated.id ? updated : item))
     } catch (error) {
-      onError(error instanceof Error ? error.message : '导出失败，请重试')
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        onError('已取消目录选择，日期未标记为已下载')
+      } else {
+        onError(error instanceof Error ? error.message : '导出失败，请重试')
+      }
     } finally {
       setExportingId(null)
     }

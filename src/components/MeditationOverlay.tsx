@@ -11,6 +11,44 @@ const BREATH_CYCLE = [
 const PRESET_MINUTES = [3, 5, 10, 15]
 const DEFAULT_MINUTES = 5
 const CYCLE_SECONDS = BREATH_CYCLE.reduce((sum, phase) => sum + phase.seconds, 0)
+const PHASE_AUDIO = [
+  {
+    ratios: [1, 1.5, 2],
+    voiceGains: [0.34, 0.1, 0.035],
+    filterFrom: 220,
+    filterTo: 760,
+    noiseFrom: 260,
+    noiseTo: 880,
+    noisePeak: 0.022,
+    attack: 0.75,
+    panFrom: -0.1,
+    panTo: 0.12,
+  },
+  {
+    ratios: [1, 1.5],
+    voiceGains: [0.3, 0.09],
+    filterFrom: 420,
+    filterTo: 560,
+    noiseFrom: 360,
+    noiseTo: 440,
+    noisePeak: 0.009,
+    attack: 1.2,
+    panFrom: 0,
+    panTo: 0,
+  },
+  {
+    ratios: [1, 0.75],
+    voiceGains: [0.34, 0.09],
+    filterFrom: 680,
+    filterTo: 230,
+    noiseFrom: 780,
+    noiseTo: 220,
+    noisePeak: 0.02,
+    attack: 0.55,
+    panFrom: 0.1,
+    panTo: -0.08,
+  },
+] as const
 
 type MeditationOutcome = 'completed' | 'cancelled'
 type MeditationStatus = 'select' | 'starting' | 'running' | 'finishing' | 'done'
@@ -76,7 +114,7 @@ export function MeditationOverlay({ onStart, onFinish, onClose }: MeditationOver
     return audioContextRef.current
   }
 
-  function releasePhaseAudio(fadeSeconds = 0.9) {
+  function releasePhaseAudio(fadeSeconds = 1.25) {
     const context = audioContextRef.current
     const layer = phaseAudioRef.current
     if (!context || !layer) return
@@ -129,25 +167,31 @@ export function MeditationOverlay({ onStart, onFinish, onClose }: MeditationOver
       releasePhaseAudio()
 
       const phase = BREATH_CYCLE[phaseIndex]
+      const audio = PHASE_AUDIO[phaseIndex]
       const now = context.currentTime
       const duration = phase.seconds + 1.2
       const master = context.createGain()
       const padFilter = context.createBiquadFilter()
+      const panner = context.createStereoPanner()
       const oscillators: OscillatorNode[] = []
 
       master.gain.setValueAtTime(0.0001, now)
-      master.gain.exponentialRampToValueAtTime(0.052, now + 1.1)
-      master.gain.setValueAtTime(0.052, now + Math.max(1.2, duration - 1.1))
+      master.gain.exponentialRampToValueAtTime(0.045, now + audio.attack)
+      master.gain.setValueAtTime(0.045, now + Math.max(audio.attack, duration - 1.25))
       master.gain.exponentialRampToValueAtTime(0.0001, now + duration)
       master.connect(context.destination)
 
-      padFilter.type = 'lowpass'
-      padFilter.frequency.setValueAtTime(phase.from * 2.4, now)
-      padFilter.frequency.linearRampToValueAtTime(phase.to * 3.2, now + duration * 0.86)
-      padFilter.Q.value = 0.35
-      padFilter.connect(master)
+      panner.pan.setValueAtTime(audio.panFrom, now)
+      panner.pan.linearRampToValueAtTime(audio.panTo, now + duration * 0.88)
+      panner.connect(master)
 
-      for (const [index, ratio] of [1, 1.5].entries()) {
+      padFilter.type = 'lowpass'
+      padFilter.frequency.setValueAtTime(audio.filterFrom, now)
+      padFilter.frequency.linearRampToValueAtTime(audio.filterTo, now + duration * 0.86)
+      padFilter.Q.value = 0.28
+      padFilter.connect(panner)
+
+      for (const [index, ratio] of audio.ratios.entries()) {
         const oscillator = context.createOscillator()
         const voiceGain = context.createGain()
         oscillator.type = 'sine'
@@ -155,7 +199,7 @@ export function MeditationOverlay({ onStart, onFinish, onClose }: MeditationOver
         if (phase.from !== phase.to) {
           oscillator.frequency.exponentialRampToValueAtTime(phase.to * ratio, now + duration * 0.88)
         }
-        voiceGain.gain.value = index === 0 ? 0.34 : 0.1
+        voiceGain.gain.value = audio.voiceGains[index]
         oscillator.connect(voiceGain)
         voiceGain.connect(padFilter)
         oscillator.start(now)
@@ -169,16 +213,16 @@ export function MeditationOverlay({ onStart, onFinish, onClose }: MeditationOver
       noise.buffer = getNoiseBuffer(context)
       noise.loop = true
       noiseFilter.type = 'lowpass'
-      noiseFilter.frequency.setValueAtTime(phaseIndex === 2 ? 700 : 360, now)
-      noiseFilter.frequency.linearRampToValueAtTime(phaseIndex === 0 ? 760 : phaseIndex === 1 ? 520 : 220, now + duration)
-      noiseFilter.Q.value = 0.25
+      noiseFilter.frequency.setValueAtTime(audio.noiseFrom, now)
+      noiseFilter.frequency.linearRampToValueAtTime(audio.noiseTo, now + duration)
+      noiseFilter.Q.value = 0.22
       noiseGain.gain.setValueAtTime(0.0001, now)
-      noiseGain.gain.linearRampToValueAtTime(0.022, now + Math.min(1.1, duration * 0.3))
-      noiseGain.gain.linearRampToValueAtTime(0.008, now + duration * 0.72)
+      noiseGain.gain.linearRampToValueAtTime(audio.noisePeak, now + Math.min(1.1, duration * 0.3))
+      noiseGain.gain.linearRampToValueAtTime(audio.noisePeak * 0.34, now + duration * 0.72)
       noiseGain.gain.exponentialRampToValueAtTime(0.0001, now + duration)
       noise.connect(noiseFilter)
       noiseFilter.connect(noiseGain)
-      noiseGain.connect(context.destination)
+      noiseGain.connect(panner)
       noise.start(now)
       noise.stop(now + duration + 0.05)
 
@@ -255,6 +299,17 @@ export function MeditationOverlay({ onStart, onFinish, onClose }: MeditationOver
     try {
       await onFinish(record, nextOutcome)
       if (!mountedRef.current) return
+      if (nextOutcome === 'cancelled') {
+        setRecord(null)
+        setMinutes(DEFAULT_MINUTES)
+        setTotal(0)
+        setElapsed(0)
+        setPaused(false)
+        setMuted(false)
+        lastPhaseRef.current = -1
+        setStatus('select')
+        return
+      }
       setOutcome(nextOutcome)
       setStatus('done')
     } catch (finishError) {

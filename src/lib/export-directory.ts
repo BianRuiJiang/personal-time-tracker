@@ -103,11 +103,11 @@ async function ensureWritableDirectory(
 
 async function pickDirectory(): Promise<PermissionedDirectoryHandle> {
   if (typeof window.showDirectoryPicker !== 'function') {
-    throw new Error(`当前浏览器不支持固定导出目录，请用 Chrome 或 Edge 重试；记录未重置`)
+    throw new Error(`当前浏览器不支持固定导出目录，请用 Chrome 或 Edge 重试；本次导出未完成`)
   }
   const directory = await window.showDirectoryPicker({ id: 'time-expense', mode: 'readwrite' })
   if (directory.name !== DIRECTORY_NAME) {
-    throw new Error(`请选择「${DIRECTORY_NAME}」文件夹；记录未重置`)
+    throw new Error(`请选择「${DIRECTORY_NAME}」文件夹；本次导出未完成`)
   }
   return directory
 }

@@ -202,6 +202,11 @@ describe('时间记录界面', () => {
     ])
     apiMocks.fetchRecordCycles.mockResolvedValue([
       cycle({
+        id: 'empty-cycle',
+        started_at: dayRange(shiftDate(statisticalDay(), -2)).start.toISOString(),
+        ended_at: dayRange(shiftDate(statisticalDay(), -1)).start.toISOString(),
+      }),
+      cycle({
         id: 'previous-cycle',
         started_at: previousDayStart.toISOString(),
         ended_at: currentDayStart.toISOString(),
@@ -227,6 +232,7 @@ describe('时间记录界面', () => {
     await user.click(screen.getByRole('menuitem', { name: '进入数据库' }))
 
     expect(await screen.findByRole('dialog', { name: '数据库记录' })).toBeInTheDocument()
+    expect(screen.getByText('1 个未导出')).toBeInTheDocument()
     expect(document.querySelector('.archive-record-meta')?.textContent).not.toMatch(/\d{4}-\d{2}-\d{2}/)
     expect(document.querySelector('.cycle-fog')).not.toBeInTheDocument()
     expect(document.querySelector('.calendar-day.future')).not.toBeNull()
@@ -246,8 +252,8 @@ describe('时间记录界面', () => {
 
     await user.click(screen.getByRole('button', { name: `下载 ${statisticalDay()}` }))
     await waitFor(() => expect(apiMocks.markCycleExported).toHaveBeenCalledTimes(1))
-    expect(exportMocks.exportMarkdown).toHaveBeenCalledTimes(1)
-    expect(exportMocks.exportMarkdown.mock.invocationCallOrder[0])
+    expect(exportMocks.exportMarkdownToDirectory).toHaveBeenCalledTimes(1)
+    expect(exportMocks.exportMarkdownToDirectory.mock.invocationCallOrder[0])
       .toBeLessThan(apiMocks.markCycleExported.mock.invocationCallOrder[0])
     await waitFor(() => expect(document.querySelector('.calendar-day.unexported')).not.toBeInTheDocument())
   })
@@ -272,7 +278,8 @@ describe('时间记录界面', () => {
       '冥想 5 分钟（取消）',
       expect.any(String),
     ))
-    expect(await screen.findByText('已结束并记录')).toBeInTheDocument()
+    expect(await screen.findByLabelText('冥想时长（分钟）')).toHaveValue(5)
+    expect(screen.queryByText('已结束并记录')).not.toBeInTheDocument()
   })
 
   it('同一周期当天已有记录时，继续记录不触发重置提示', async () => {
