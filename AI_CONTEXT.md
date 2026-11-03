@@ -35,7 +35,7 @@
 - 已新增数据库面板和 `YYYY-MM-DD` 记录抬头；记录条内不再显示日期，前端对旧数据库缺 RPC 做兼容回退，避免迁移前阻断记录。
 - 数据库月历已改为固定 42px 日期格；窄窗口改为单列布局，详情从完整月历之后开始，不再遮挡日期。服务缓存已升到 `time-tracker-v8`。
 - 本地已通过 77 项测试、类型检查和生产构建。
-- `8fe7281` 已推送到 `main`；GitHub Actions 测试、类型检查、构建和 Pages 部署均成功，线上地址返回 `200`。
+- `f3b7b98` 已推送到 `main`；GitHub Actions 测试、类型检查、构建和 Pages 部署均成功，线上地址返回 `200`，Service Worker 缓存为 `v8`。
 - `004_daily_cycles_and_exports.sql` 已在远端 Supabase 执行并核验：周期/导出函数和字段齐全，Cron 为 `0 21 * * *`（北京时间每天 05:00），迁移前后 163 条活动记录保持不变。
 - 部署方式：推送 `main`，GitHub Actions 自动测试、构建并发布。
 - 线上地址：`https://bianruijiang.github.io/personal-time-tracker/`。
