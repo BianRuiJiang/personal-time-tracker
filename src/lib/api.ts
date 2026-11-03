@@ -214,6 +214,21 @@ export async function updateActivity(
   return data
 }
 
+export async function finishMeditation(
+  id: string,
+  name: string,
+  endedAt: string,
+) {
+  const { data, error } = await supabase
+    .from('activities')
+    .update({ name, ended_at: endedAt })
+    .eq('id', id)
+    .select()
+    .single<Activity>()
+  if (error) throw new Error(error.message)
+  return data
+}
+
 export async function deleteActivity(id: string) {
   const { error } = await supabase.from('activities').delete().eq('id', id)
   if (error) throw new Error(error.message)

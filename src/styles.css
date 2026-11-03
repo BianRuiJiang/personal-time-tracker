@@ -437,6 +437,79 @@ h1, h2, h3, p, ol, li { margin: 0; padding: 0; }
 
 .shortcut-item { display: flex; align-items: center; gap: 6px; }
 
+.shortcut-row.is-managing {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--hairline);
+  border-radius: 12px;
+  background: var(--fill);
+}
+
+.shortcut-row.is-managing .shortcut-item.is-editing {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr) 32px;
+  gap: 8px;
+  min-width: 0;
+  padding: 5px 5px 5px 11px;
+  border-radius: 9px;
+  background: var(--surface);
+  box-shadow: 0 0 0 1px rgba(48, 54, 48, .04);
+}
+
+.shortcut-row.is-managing .manage-btn {
+  grid-column: 1 / -1;
+  justify-self: end;
+  color: var(--accent-deep);
+}
+
+.shortcut-mark {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.shortcut-mark.default {
+  background: var(--info);
+  box-shadow: 0 0 0 3px rgba(100, 134, 163, .14);
+}
+
+.shortcut-row.is-managing .shortcut-item input {
+  width: 100%;
+  height: 32px;
+  padding: 0 4px;
+  border: 0;
+  background: transparent;
+  font-size: 14px;
+}
+
+.shortcut-row.is-managing .shortcut-item input:focus {
+  outline: none;
+  color: var(--accent-deep);
+}
+
+.shortcut-delete {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink-3);
+  cursor: pointer;
+  transition: background .16s var(--ease), color .16s var(--ease);
+}
+
+.shortcut-delete:hover {
+  background: rgba(184, 92, 86, .1);
+  color: var(--danger);
+}
+
 .shortcut-item input {
   width: 96px;
   height: 34px;
@@ -527,6 +600,10 @@ h1, h2, h3, p, ol, li { margin: 0; padding: 0; }
 }
 
 .shortcut-add button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
   flex: 0 0 auto;
   height: 40px;
   padding: 0 16px;
@@ -716,7 +793,17 @@ h1, h2, h3, p, ol, li { margin: 0; padding: 0; }
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 10px;
   margin-bottom: 14px;
+}
+
+.month-arrows {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  flex: 1 1 auto;
 }
 
 .month-nav strong { font-size: 16px; }
@@ -733,6 +820,21 @@ h1, h2, h3, p, ol, li { margin: 0; padding: 0; }
 }
 
 .month-nav button:hover { background: var(--accent-soft); color: var(--accent-deep); }
+
+.today-btn {
+  flex: none;
+  width: auto !important;
+  padding: 0 11px;
+  background: var(--surface) !important;
+  color: var(--accent-deep) !important;
+  font-size: 12px !important;
+  font-weight: 600;
+  box-shadow: inset 0 0 0 1px rgba(100, 133, 107, .24);
+}
+
+.today-btn:hover {
+  background: var(--accent-soft) !important;
+}
 
 .calendar-week,
 .calendar-grid {
@@ -792,9 +894,19 @@ h1, h2, h3, p, ol, li { margin: 0; padding: 0; }
 .calendar-day:active:not(.outside) { transform: scale(.97); }
 .calendar-day:focus-visible { outline: 0; box-shadow: 0 0 0 3px rgba(100, 133, 107, .18); }
 .calendar-day.outside { opacity: 1; background: transparent; color: var(--ink-3); }
-.calendar-day.exported { background: var(--accent-soft); color: var(--accent-deep); }
-.calendar-day.unexported { background: rgba(193, 139, 79, .18); color: #8a6127; }
-.calendar-day.selected { box-shadow: inset 0 0 0 2px var(--accent); }
+.calendar-day.exported {
+  background: #e3efe6;
+  color: var(--accent-deep);
+  box-shadow: inset 0 0 0 1px rgba(92, 126, 99, .18);
+}
+.calendar-day.unexported {
+  background: #ffe9c7;
+  color: #7f541f;
+  box-shadow: inset 0 0 0 1px rgba(193, 139, 79, .3);
+}
+.calendar-day.selected {
+  box-shadow: inset 0 0 0 2px var(--accent), 0 0 0 2px rgba(100, 133, 107, .12);
+}
 
 .calendar-legend {
   display: flex;
@@ -804,8 +916,8 @@ h1, h2, h3, p, ol, li { margin: 0; padding: 0; }
 }
 
 .calendar-legend span { padding: 4px 8px; border-radius: 999px; }
-.legend-exported { background: var(--accent-soft); color: var(--accent-deep); }
-.legend-unexported { background: rgba(193, 139, 79, .18); color: #8a6127; }
+.legend-exported { background: #e3efe6; color: var(--accent-deep); }
+.legend-unexported { background: #ffe9c7; color: #7f541f; }
 
 .archive-detail-head {
   position: sticky;
@@ -829,13 +941,15 @@ h1, h2, h3, p, ol, li { margin: 0; padding: 0; }
 .archive-detail-head span { font-size: 12px; color: var(--ink-2); }
 
 .archive-cycle {
+  position: relative;
+  overflow: hidden;
   margin-bottom: 12px;
   padding: 14px;
   border-radius: 8px;
 }
 
-.archive-cycle.exported { background: var(--accent-soft); }
-.archive-cycle.unexported { background: rgba(193, 139, 79, .14); }
+.archive-cycle.exported { background: #e3efe6; }
+.archive-cycle.unexported { background: #fff2dd; }
 
 .archive-cycle-head {
   display: flex;
@@ -864,13 +978,17 @@ h1, h2, h3, p, ol, li { margin: 0; padding: 0; }
   font-size: 11px;
 }
 
-.cycle-badge.exported { background: rgba(100, 133, 107, .16); color: var(--accent-deep); }
-.cycle-badge.unexported { background: rgba(193, 139, 79, .18); color: #8a6127; }
+.cycle-badge.exported { background: rgba(100, 133, 107, .14); color: var(--accent-deep); }
+.cycle-badge.unexported { background: #f6d9aa; color: #75501f; }
 
 .download-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   flex: none;
+  width: 32px;
   height: 32px;
-  padding: 0 12px;
+  padding: 0;
   border: 0;
   border-radius: 8px;
   background: var(--accent-strong);
@@ -881,6 +999,47 @@ h1, h2, h3, p, ol, li { margin: 0; padding: 0; }
 
 .download-btn:hover:not(:disabled) { background: var(--accent-deep); }
 .download-btn:disabled { opacity: .42; cursor: not-allowed; }
+
+.download-progress {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255, 255, 255, .44);
+  border-top-color: #ffffff;
+  border-radius: 50%;
+  animation: download-spin .7s linear infinite;
+}
+
+@keyframes download-spin {
+  to { transform: rotate(360deg); }
+}
+
+.archive-cycle-records {
+  position: relative;
+}
+
+.cycle-fog {
+  position: absolute;
+  inset: -4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 7px;
+  background:
+    radial-gradient(circle at 20% 30%, rgba(255, 255, 255, .96), rgba(255, 255, 255, .56) 46%, transparent 74%),
+    radial-gradient(circle at 78% 74%, rgba(255, 255, 255, .92), rgba(255, 247, 232, .6) 46%, transparent 76%),
+    rgba(255, 247, 232, .68);
+  color: #8a6127;
+  pointer-events: none;
+}
+
+.cycle-fog span {
+  padding: 4px 9px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .84);
+  font-size: 11px;
+  font-weight: 600;
+  box-shadow: 0 2px 8px rgba(138, 97, 39, .12);
+}
 
 .archive-cycle ol {
   display: grid;
@@ -1062,6 +1221,7 @@ label { display: grid; gap: 6px; font-size: 13px; color: var(--ink-2); }
   .alerts { padding: 0 16px 8px; }
   .composer { padding: 12px 16px calc(env(safe-area-inset-bottom) + 14px); }
   .composer-form button { padding: 0 18px; }
+  .shortcut-row.is-managing { grid-template-columns: 1fr; }
   /* 修改记录改为底部抽屉：软键盘弹出时视觉重心仍在可视区，且贴近拇指操作。 */
   .editor-overlay {
     display: flex;
@@ -1116,6 +1276,12 @@ label { display: grid; gap: 6px; font-size: 13px; color: var(--ink-2); }
 
 /* ---------- 冥想遮罩 ---------- */
 .meditation-overlay {
+  --phase-bg: #f5f5f0;
+  --phase-wash: #f7f7f3;
+  --phase-accent: var(--accent-deep);
+  --phase-soft: var(--accent-soft);
+  --phase-border: rgba(100, 133, 107, .34);
+  --phase-glow: rgba(100, 133, 107, .14);
   position: fixed;
   inset: 0;
   z-index: 9;
@@ -1123,34 +1289,149 @@ label { display: grid; gap: 6px; font-size: 13px; color: var(--ink-2); }
   align-items: center;
   justify-content: center;
   padding: 20px;
-  background: rgba(245, 245, 240, .96);
+  overflow: hidden;
+  background: var(--phase-bg);
+  transition: background-color 2.2s var(--ease);
+}
+
+.meditation-overlay.breath-0 {
+  --phase-bg: #e8f2f0;
+  --phase-wash: #f2f9f7;
+  --phase-accent: #3f7773;
+  --phase-soft: #cfe6e1;
+  --phase-border: rgba(63, 119, 115, .34);
+  --phase-glow: rgba(63, 119, 115, .18);
+}
+
+.meditation-overlay.breath-1 {
+  --phase-bg: #eaf1e7;
+  --phase-wash: #f5f8f2;
+  --phase-accent: #526f57;
+  --phase-soft: #dbe8d7;
+  --phase-border: rgba(82, 111, 87, .32);
+  --phase-glow: rgba(82, 111, 87, .17);
+}
+
+.meditation-overlay.breath-2 {
+  --phase-bg: #e7edf4;
+  --phase-wash: #f3f6f9;
+  --phase-accent: #567590;
+  --phase-soft: #d9e5ef;
+  --phase-border: rgba(86, 117, 144, .3);
+  --phase-glow: rgba(86, 117, 144, .16);
+}
+
+.meditation-atmosphere {
+  position: absolute;
+  inset: 0;
+  background: var(--phase-wash);
+  opacity: .34;
+  transition: background-color 2.2s var(--ease);
+  pointer-events: none;
 }
 
 .meditation-panel {
+  position: relative;
   width: min(100%, 340px);
   display: grid;
   gap: 16px;
   padding: 26px 24px 20px;
-  border-radius: 8px;
-  background: var(--surface);
-  box-shadow: 0 18px 42px rgba(48, 54, 48, .14);
+  border: 1px solid rgba(255, 255, 255, .82);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, .9);
+  box-shadow: 0 20px 54px rgba(48, 54, 48, .11);
   text-align: center;
 }
 
+.meditation-title {
+  display: grid;
+  gap: 5px;
+}
+
+.meditation-title > span {
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 650;
+}
+
 .meditation-panel h2 {
-  font-size: 20px;
+  font-size: 22px;
   font-weight: 700;
 }
 
 .meditation-rhythm {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.meditation-rhythm > span {
+  display: grid;
+  gap: 3px;
+  padding: 9px 6px;
+  border-radius: 8px;
+  background: var(--fill);
+}
+
+.meditation-rhythm strong {
+  color: var(--ink);
+  font-size: 17px;
+  font-variant-numeric: tabular-nums;
+}
+
+.meditation-rhythm small {
+  color: var(--ink-2);
+  font-size: 11px;
+}
+
+.meditation-duration {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 13px;
+  border-radius: 9px;
+  background: var(--fill);
   color: var(--ink-2);
   font-size: 13px;
 }
 
+.meditation-duration-input {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.meditation-duration-input input {
+  width: 58px;
+  height: 34px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--accent-deep);
+  font-size: 18px;
+  font-weight: 650;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.meditation-duration-input input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(100, 133, 107, .14);
+}
+
+.meditation-duration-input em {
+  color: var(--ink-2);
+  font-size: 12px;
+  font-style: normal;
+}
+
 .meditation-options {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
 }
 
 .meditation-options button,
@@ -1168,6 +1449,18 @@ label { display: grid; gap: 6px; font-size: 13px; color: var(--ink-2); }
   cursor: pointer;
   transition: background .16s var(--ease), color .16s var(--ease),
               transform .2s var(--ease);
+}
+
+.meditation-options button {
+  height: 36px;
+  padding: 0 6px;
+  font-size: 12px;
+}
+
+.meditation-options button.is-selected {
+  background: var(--accent-soft);
+  color: var(--accent-deep);
+  box-shadow: inset 0 0 0 1px rgba(100, 133, 107, .2);
 }
 
 .meditation-options button:hover,
@@ -1190,11 +1483,39 @@ label { display: grid; gap: 6px; font-size: 13px; color: var(--ink-2); }
 
 .meditation-close:hover { background: transparent; color: var(--accent); }
 
+.meditation-start {
+  height: 46px;
+  border: 0;
+  border-radius: 9px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
 .meditation-session {
+  position: relative;
+  z-index: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 26px;
+  gap: 22px;
+}
+
+.meditation-phase-copy {
+  display: grid;
+  gap: 4px;
+  text-align: center;
+}
+
+.meditation-phase-copy span {
+  color: var(--phase-accent);
+  font-size: 19px;
+  font-weight: 700;
+  transition: color 2.2s var(--ease);
+}
+
+.meditation-phase-copy small {
+  color: var(--ink-2);
+  font-size: 12px;
 }
 
 .meditation-breath-circle {
@@ -1204,16 +1525,18 @@ label { display: grid; gap: 6px; font-size: 13px; color: var(--ink-2); }
   width: min(240px, 56vw);
   height: min(240px, 56vw);
   border-radius: 50%;
-  background: var(--accent-soft);
-  border: 2px solid rgba(100, 133, 107, .42);
-  box-shadow: 0 0 0 14px rgba(100, 133, 107, .08), 0 16px 40px rgba(100, 133, 107, .14);
-  color: var(--accent-deep);
+  background: var(--phase-soft);
+  border: 2px solid var(--phase-border);
+  box-shadow: 0 0 0 14px var(--phase-glow), 0 18px 48px var(--phase-glow);
+  color: var(--phase-accent);
   font-size: 18px;
   font-weight: 600;
   will-change: transform;
+  transition: background-color 2.2s var(--ease), border-color 2.2s var(--ease),
+              color 2.2s var(--ease), box-shadow 2.2s var(--ease);
 }
 
-/* 呼吸圆环：四个阶段对应缩放动画，切换阶段时由 key 重新触发 */
+/* 呼吸圆环跟随三个阶段缩放：吸气展开、停留稳定、呼气收拢。 */
 .meditation-breath-circle.phase-in {
   animation: meditation-breath-in 4s cubic-bezier(.45, .05, .35, 1) forwards;
 }
@@ -1244,19 +1567,44 @@ label { display: grid; gap: 6px; font-size: 13px; color: var(--ink-2); }
 }
 
 .meditation-countdown {
-  color: var(--info-text);
-  font-size: 26px;
+  color: var(--phase-accent);
+  font-size: 30px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
+  transition: color 2.2s var(--ease);
 }
 
 .meditation-controls {
   display: flex;
+  justify-content: center;
   gap: 10px;
+}
+
+.meditation-controls button:disabled {
+  opacity: .55;
+  cursor: wait;
+}
+
+.meditation-controls .meditation-cancel {
+  color: var(--danger);
+}
+
+.meditation-controls .meditation-cancel:hover:not(:disabled) {
+  background: rgba(184, 92, 86, .1);
+  color: var(--danger);
+}
+
+.meditation-error {
+  padding: 8px 10px;
+  border-radius: 7px;
+  background: rgba(184, 92, 86, .1);
+  color: var(--danger);
+  font-size: 12px;
 }
 
 .meditation-done-actions {
   display: flex;
+  justify-content: center;
   gap: 10px;
 }
 
@@ -1266,7 +1614,43 @@ label { display: grid; gap: 6px; font-size: 13px; color: var(--ink-2); }
   border-radius: 8px;
 }
 
+.meditation-loading,
+.meditation-complete {
+  justify-items: center;
+}
+
+.meditation-loading-ring {
+  width: 34px;
+  height: 34px;
+  border: 3px solid var(--accent-soft);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: download-spin .8s linear infinite;
+}
+
+.meditation-loading p,
+.meditation-complete p {
+  color: var(--ink-2);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.meditation-complete-mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--accent-deep);
+  font-size: 22px;
+  font-weight: 700;
+}
+
 @media (max-width: 480px) {
+  .meditation-overlay { padding: 16px; }
+  .meditation-panel { padding: 24px 18px 18px; }
   .meditation-options { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .meditation-controls { flex-wrap: wrap; justify-content: center; }
   .meditation-controls button { flex: 1 1 96px; }

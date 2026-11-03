@@ -12,6 +12,7 @@ import {
   ensureCurrentRecordCycle,
   fetchCycleActivities,
   fetchShortcuts,
+  finishMeditation,
   renameShortcut,
   reorderShortcuts,
   resetRecordCycle,
@@ -468,7 +469,7 @@ export default function App() {
     refresh: () => void,
     onFail?: () => void,
     onResult?: (result: T) => void,
-  ) {
+  ): Promise<T | undefined> {
     setActionError('')
     // 先同步反映到界面，用户点了就立刻能看到
     applyLocal()
@@ -498,7 +499,9 @@ export default function App() {
         if (queueIdle) refresh()
       })
 
-    writeQueue.current = writeQueue.current.then(task, task)
+    const queued = writeQueue.current.then(task, task).then(() => failed ? undefined : result)
+    writeQueue.current = queued
+    return queued
   }
 
   function syncRecords<T>(
@@ -507,7 +510,7 @@ export default function App() {
     onFail?: () => void,
     onResult?: (result: T) => void,
   ) {
-    runWrite(applyLocal, action, () => {
+    return runWrite(applyLocal, action, () => {
       reloadCycleData()
     }, onFail, onResult)
   }
@@ -604,9 +607,12 @@ export default function App() {
     )
   }
 
-  async function submitRecord(name: string, source: 'manual' | 'shortcut') {
+  async function submitRecord(
+    name: string,
+    source: 'manual' | 'shortcut',
+  ): Promise<Activity | null> {
     if (shouldPromptCycleReset()) {
-      if (!promptCycleReset()) return
+      if (!promptCycleReset()) return null
 
       const rows = resetExportRows()
       const exportFileName = resetExportFileName(rows)
@@ -614,10 +620,10 @@ export default function App() {
       const previousHistory = historyRecords
       // 必须先导出旧周期；数据库重置成功后再写入的新记录才属于新周期。
       const exported = await exportResetRows(rows)
-      if (!exported) return
+      if (!exported) return null
 
       setActivityName('')
-      syncRecords(
+      const result = await syncRecords(
         () => {
           const optimistic = optimisticRecord(name, source)
           setRecords([optimistic])
@@ -633,18 +639,50 @@ export default function App() {
           setHistoryRecords(previousHistory)
         },
       )
-      return
+      return result ?? null
     }
 
     const previous = records
     setActivityName('')
     scrollPending.current = source === 'manual'
-    syncRecords(
+    const result = await syncRecords(
       () => localSwitch(name, source),
       () => switchActivity(name, source),
       () => {
         if (source === 'manual') setActivityName(name)
         setRecords(previous)
+      },
+    )
+    return result ?? null
+  }
+
+  async function startMeditation(minutes: number) {
+    const name = `冥想 ${minutes} 分钟`
+    const existing = records.find((row) => row.ended_at === null && row.name === name)
+    return existing ?? submitRecord(name, 'manual')
+  }
+
+  async function completeMeditation(
+    record: Activity,
+    outcome: 'completed' | 'cancelled',
+  ) {
+    const suffix = outcome === 'completed' ? '完成' : '取消'
+    const name = `${record.name}（${suffix}）`
+    const endedAt = new Date().toISOString()
+    const previousRecords = records
+    const previousHistory = historyRecords
+    await syncRecords(
+      () => {
+        const update = (items: Activity[]) => items.map((item) => (
+          item.id === record.id ? { ...item, name, ended_at: endedAt } : item
+        ))
+        setRecords(update)
+        setHistoryRecords(update)
+      },
+      () => finishMeditation(record.id, name, endedAt),
+      () => {
+        setRecords(previousRecords)
+        setHistoryRecords(previousHistory)
       },
     )
   }
@@ -717,7 +755,7 @@ export default function App() {
       setActionError('')
       return
     }
-    submitRecord(name, 'manual')
+    void submitRecord(name, 'manual')
   }
 
   function startShortcut(shortcut: Shortcut) {
@@ -726,7 +764,7 @@ export default function App() {
       return
     }
     if (isAlreadyRunning(shortcut.name)) return
-    submitRecord(shortcut.name, 'shortcut')
+    void submitRecord(shortcut.name, 'shortcut')
   }
 
   function removeRecord(id: string) {
@@ -1029,13 +1067,23 @@ export default function App() {
           </button>
         </form>
 
-        <div className="shortcut-row">
+        <div className={managing ? 'shortcut-row is-managing' : 'shortcut-row'}>
           {orderedShortcuts.map((shortcut) => (
-            <div key={shortcut.id} className="shortcut-item">
+            <div
+              key={shortcut.id}
+              className={[
+                'shortcut-item',
+                managing ? 'is-editing' : '',
+              ].filter(Boolean).join(' ')}
+            >
               {managing ? (
                 <>
+                  <span
+                    className={shortcut.is_default ? 'shortcut-mark default' : 'shortcut-mark'}
+                    aria-hidden="true"
+                  />
                   <input
-                    aria-label="快捷按钮名称"
+                    aria-label={`编辑标签 ${shortcut.name}`}
                     defaultValue={shortcut.name}
                     onBlur={(event) => {
                       const name = event.target.value.trim()
@@ -1051,7 +1099,7 @@ export default function App() {
                       }
                     }}
                   />
-                  <button className="icon danger" aria-label={`删除 ${shortcut.name}`} onClick={() => {
+                  <button className="shortcut-delete" aria-label={`删除标签 ${shortcut.name}`} onClick={() => {
                     if (!window.confirm(`确认删除「${shortcut.name}」按钮？`)) return
                     const previous = shortcuts
                     syncShortcuts(
@@ -1059,7 +1107,15 @@ export default function App() {
                       () => deleteShortcut(shortcut.id),
                       () => setShortcuts(previous),
                     )
-                  }}>×</button>
+                  }}>
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M3 6h18" />
+                      <path d="M8 6V4h8v2" />
+                      <path d="M19 6l-1 14H6L5 6" />
+                      <path d="M10 11v5" />
+                      <path d="M14 11v5" />
+                    </svg>
+                  </button>
                 </>
               ) : (
                 <button
@@ -1089,7 +1145,7 @@ export default function App() {
             </div>
           ))}
           <button type="button" className="manage-btn" onClick={() => setManaging(!managing)}>
-            {managing ? '完成' : '编辑'}
+            {managing ? '完成' : '编辑标签'}
           </button>
         </div>
 
@@ -1115,12 +1171,18 @@ export default function App() {
           }}>
             <input
               aria-label="新增快捷按钮"
-              placeholder="新增快捷按钮"
+              placeholder="给新标签起个名字"
               value={newShortcut}
               onChange={(event) => setNewShortcut(event.target.value)}
               maxLength={80}
             />
-            <button type="submit">新增</button>
+            <button type="submit" aria-label="新增标签">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M12 5v14" />
+                <path d="M5 12h14" />
+              </svg>
+              新增
+            </button>
           </form>
         )}
       </footer>
@@ -1182,7 +1244,11 @@ export default function App() {
       )}
 
       {meditationOpen && (
-        <MeditationOverlay onClose={() => setMeditationOpen(false)} />
+        <MeditationOverlay
+          onStart={startMeditation}
+          onFinish={completeMeditation}
+          onClose={() => setMeditationOpen(false)}
+        />
       )}
 
       {archiveOpen && (

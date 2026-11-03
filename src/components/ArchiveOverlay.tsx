@@ -120,6 +120,15 @@ export function ArchiveOverlay({ onClose, onError }: ArchiveOverlayProps) {
     }
   }, [onClose])
 
+  function goToday() {
+    const today = statisticalDay()
+    setSelectedDay(today)
+    setMonthCursor({
+      year: Number(today.slice(0, 4)),
+      month: Number(today.slice(5, 7)),
+    })
+  }
+
   const sortedRecords = useMemo(
     () => [...records].sort((left, right) => left.started_at.localeCompare(right.started_at)),
     [records],
@@ -243,9 +252,12 @@ export function ArchiveOverlay({ onClose, onError }: ArchiveOverlayProps) {
           <div className="archive-layout">
             <aside className="archive-calendar">
               <div className="month-nav">
-                <button type="button" onClick={() => setMonthCursor(shiftMonth(monthCursor, -1))} aria-label="上一月">‹</button>
-                <strong>{monthLabel(monthCursor)}</strong>
-                <button type="button" onClick={() => setMonthCursor(shiftMonth(monthCursor, 1))} aria-label="下一月">›</button>
+                <div className="month-arrows">
+                  <button type="button" onClick={() => setMonthCursor(shiftMonth(monthCursor, -1))} aria-label="上一月">‹</button>
+                  <strong>{monthLabel(monthCursor)}</strong>
+                  <button type="button" onClick={() => setMonthCursor(shiftMonth(monthCursor, 1))} aria-label="下一月">›</button>
+                </div>
+                <button type="button" className="today-btn" onClick={goToday}>今天</button>
               </div>
               <div className="calendar-week">
                 {WEEK_LABELS.map((label) => <span key={label}>{label}</span>)}
@@ -303,27 +315,44 @@ export function ArchiveOverlay({ onClose, onError }: ArchiveOverlayProps) {
                         className="download-btn"
                         disabled={!cycle || rows.length === 0 || exportingId !== null}
                         onClick={() => cycle && downloadCycle(cycle)}
+                        aria-label="下载"
+                        title={cycle?.exported_at ? '重新下载' : '下载并标记为已导出'}
                       >
-                        {exportingId === cycle?.id ? '导出中' : '下载'}
+                        {exportingId === cycle?.id ? (
+                          <span className="download-progress" aria-hidden="true" />
+                        ) : (
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                            <path d="M12 3v12" />
+                            <path d="m7 10 5 5 5-5" />
+                            <path d="M5 21h14" />
+                          </svg>
+                        )}
                       </button>
                     </div>
-                    <ol>
-                      {rows.map((record) => (
-                        <li key={record.id}>
-                          <div className="archive-record-top">
-                            <strong>{record.name}</strong>
-                            <span>{SOURCE_LABELS[record.source]}</span>
-                          </div>
-                          <div className="archive-record-meta">
-                            <span>
-                              {beijingClockLabel(record.started_at)}
-                              {record.ended_at ? `-${beijingClockLabel(record.ended_at)}` : '-进行中'}
-                            </span>
-                            <span>{durationLabel(record.started_at, record.ended_at)}</span>
-                          </div>
-                        </li>
-                      ))}
-                    </ol>
+                    <div className="archive-cycle-records">
+                      <ol>
+                        {rows.map((record) => (
+                          <li key={record.id}>
+                            <div className="archive-record-top">
+                              <strong>{record.name}</strong>
+                              <span>{SOURCE_LABELS[record.source]}</span>
+                            </div>
+                            <div className="archive-record-meta">
+                              <span>
+                                {beijingClockLabel(record.started_at)}
+                                {record.ended_at ? `-${beijingClockLabel(record.ended_at)}` : '-进行中'}
+                              </span>
+                              <span>{durationLabel(record.started_at, record.ended_at)}</span>
+                            </div>
+                          </li>
+                        ))}
+                      </ol>
+                      {!cycle?.exported_at && (
+                        <div className="cycle-fog" aria-hidden="true">
+                          <span>待下载</span>
+                        </div>
+                      )}
+                    </div>
                   </article>
                 ))
               )}

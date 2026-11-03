@@ -25,6 +25,7 @@ const apiMocks = vi.hoisted(() => ({
   fetchAllActivities: vi.fn(),
   resetRecordCycle: vi.fn(),
   markCycleExported: vi.fn(),
+  finishMeditation: vi.fn(),
   deleteActivity: vi.fn(),
   updateActivity: vi.fn(),
 }))
@@ -142,6 +143,9 @@ beforeEach(() => {
   apiMocks.markCycleExported.mockResolvedValue(
     cycle({ exported_at: new Date().toISOString(), export_file_name: 'time-records-test.md' }),
   )
+  apiMocks.finishMeditation.mockImplementation((id: string, name: string, endedAt: string) =>
+    Promise.resolve(activity({ id, name, ended_at: endedAt })),
+  )
   apiMocks.resetRecordCycle.mockResolvedValue(cycle({ id: 'next-cycle-id', started_at: new Date().toISOString() }))
   apiMocks.switchActivity.mockResolvedValue(activity({ id: 'new-id', name: '阅读', source: 'shortcut' }))
   apiMocks.updateActivity.mockImplementation((_id: string, values: Partial<Activity>) =>
@@ -220,6 +224,7 @@ describe('时间记录界面', () => {
 
     expect(await screen.findByRole('dialog', { name: '数据库记录' })).toBeInTheDocument()
     expect(document.querySelector('.archive-record-meta')?.textContent).not.toMatch(/\d{4}-\d{2}-\d{2}/)
+    expect(document.querySelector('.cycle-fog')).not.toBeNull()
     const exportedDay = await waitFor(() => {
       const day = document.querySelector<HTMLElement>('.calendar-day.exported')
       expect(day).not.toBeNull()
@@ -230,11 +235,38 @@ describe('时间记录界面', () => {
     expect(document.querySelector('.calendar-day.exported')).not.toBeNull()
     expect(document.querySelector('.calendar-day.unexported')).not.toBeNull()
 
+    await user.click(screen.getByRole('button', { name: '下一月' }))
+    await user.click(screen.getByRole('button', { name: '今天' }))
+    expect(document.querySelector('.archive-detail-head h3')?.textContent).toBe(statisticalDay())
+
     await user.click(screen.getByRole('button', { name: '下载' }))
     await waitFor(() => expect(apiMocks.markCycleExported).toHaveBeenCalledTimes(1))
     expect(exportMocks.exportMarkdown).toHaveBeenCalledTimes(1)
     expect(exportMocks.exportMarkdown.mock.invocationCallOrder[0])
       .toBeLessThan(apiMocks.markCycleExported.mock.invocationCallOrder[0])
+  })
+
+  it('冥想开始、取消都写入时间记录，默认时长为分钟', async () => {
+    apiMocks.switchActivity.mockImplementation((name: string, source: 'manual' | 'shortcut') =>
+      Promise.resolve(activity({ id: 'meditation-id', name, source })),
+    )
+    const user = userEvent.setup()
+    render(<App />)
+    await screen.findAllByText('写作')
+
+    await user.click(screen.getByRole('button', { name: '冥想' }))
+    expect(screen.getByLabelText('冥想时长（分钟）')).toHaveValue(5)
+    await user.click(screen.getByRole('button', { name: '开始 5 分钟冥想' }))
+
+    await waitFor(() => expect(apiMocks.switchActivity).toHaveBeenCalledWith('冥想 5 分钟', 'manual'))
+    await user.click(await screen.findByRole('button', { name: '取消并记录' }))
+
+    await waitFor(() => expect(apiMocks.finishMeditation).toHaveBeenCalledWith(
+      'meditation-id',
+      '冥想 5 分钟（取消）',
+      expect.any(String),
+    ))
+    expect(await screen.findByText('已结束并记录')).toBeInTheDocument()
   })
 
   it('同一周期当天已有记录时，继续记录不触发重置提示', async () => {
