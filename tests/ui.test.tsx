@@ -140,8 +140,12 @@ beforeEach(() => {
   apiMocks.ensureCurrentRecordCycle.mockResolvedValue(cycle({ started_at: dayStart.toISOString() }))
   apiMocks.fetchRecordCycles.mockResolvedValue([cycle({ started_at: dayStart.toISOString() })])
   apiMocks.fetchAllActivities.mockResolvedValue([])
-  apiMocks.markCycleExported.mockResolvedValue(
-    cycle({ exported_at: new Date().toISOString(), export_file_name: 'time-records-test.md' }),
+  apiMocks.markCycleExported.mockImplementation((id: string, fileName: string) =>
+    Promise.resolve(cycle({
+      id,
+      exported_at: new Date().toISOString(),
+      export_file_name: fileName,
+    })),
   )
   apiMocks.finishMeditation.mockImplementation((id: string, name: string, endedAt: string) =>
     Promise.resolve(activity({ id, name, ended_at: endedAt })),
@@ -187,7 +191,7 @@ describe('时间记录界面', () => {
     expect(document.querySelector('.row-date')).not.toBeInTheDocument()
   })
 
-  it('右键重置进入数据库，日历区分导出状态并可下载标记旧周期', async () => {
+  it('数据库在日历日期内下载，未来灰色、已下载绿色且记录详情无蒙版', async () => {
     const previousDayStart = dayRange(shiftDate(statisticalDay(), -1)).start
     const currentDayStart = dayRange(statisticalDay()).start
     apiMocks.ensureCurrentRecordCycle.mockResolvedValue(
@@ -224,7 +228,8 @@ describe('时间记录界面', () => {
 
     expect(await screen.findByRole('dialog', { name: '数据库记录' })).toBeInTheDocument()
     expect(document.querySelector('.archive-record-meta')?.textContent).not.toMatch(/\d{4}-\d{2}-\d{2}/)
-    expect(document.querySelector('.cycle-fog')).not.toBeNull()
+    expect(document.querySelector('.cycle-fog')).not.toBeInTheDocument()
+    expect(document.querySelector('.calendar-day.future')).not.toBeNull()
     const exportedDay = await waitFor(() => {
       const day = document.querySelector<HTMLElement>('.calendar-day.exported')
       expect(day).not.toBeNull()
@@ -239,11 +244,12 @@ describe('时间记录界面', () => {
     await user.click(screen.getByRole('button', { name: '今天' }))
     expect(document.querySelector('.archive-detail-head h3')?.textContent).toBe(statisticalDay())
 
-    await user.click(screen.getByRole('button', { name: '下载' }))
+    await user.click(screen.getByRole('button', { name: `下载 ${statisticalDay()}` }))
     await waitFor(() => expect(apiMocks.markCycleExported).toHaveBeenCalledTimes(1))
     expect(exportMocks.exportMarkdown).toHaveBeenCalledTimes(1)
     expect(exportMocks.exportMarkdown.mock.invocationCallOrder[0])
       .toBeLessThan(apiMocks.markCycleExported.mock.invocationCallOrder[0])
+    await waitFor(() => expect(document.querySelector('.calendar-day.unexported')).not.toBeInTheDocument())
   })
 
   it('冥想开始、取消都写入时间记录，默认时长为分钟', async () => {

@@ -165,6 +165,7 @@ export function ArchiveOverlay({ onClose, onError }: ArchiveOverlayProps) {
   }, [cycles, sortedRecords])
 
   const days = useMemo(() => calendarDays(monthCursor), [monthCursor])
+  const today = statisticalDay()
   const selectedRecords = recordsByDay.get(selectedDay) ?? []
 
   const selectedGroups = useMemo(() => {
@@ -195,19 +196,22 @@ export function ArchiveOverlay({ onClose, onError }: ArchiveOverlayProps) {
 
   const unexportedCount = cycles.filter((cycle) => !cycle.exported_at).length
 
+  function cycleForDay(day: string) {
+    const rows = recordsByDay.get(day)
+    if (!rows?.length) return undefined
+    const startedAt = new Date(rows[0].started_at)
+    return cycles.find((cycle) => {
+      const cycleStart = new Date(cycle.started_at)
+      const cycleEnd = cycle.ended_at ? new Date(cycle.ended_at) : null
+      return startedAt >= cycleStart && (!cycleEnd || startedAt < cycleEnd)
+    })
+  }
+
   function dayTone(day: string) {
+    if (day > today) return 'future'
     const rows = recordsByDay.get(day)
     if (!rows?.length) return 'empty'
-    const hasUnexported = rows.some((record) => {
-      const cycle = cycles.find((item) => {
-        const startedAt = new Date(record.started_at)
-        const cycleStart = new Date(item.started_at)
-        const cycleEnd = item.ended_at ? new Date(item.ended_at) : null
-        return startedAt >= cycleStart && (!cycleEnd || startedAt < cycleEnd)
-      })
-      return !cycle?.exported_at
-    })
-    return hasUnexported ? 'unexported' : 'exported'
+    return cycleForDay(day)?.exported_at ? 'exported' : 'unexported'
   }
 
   async function downloadCycle(cycle: RecordCycle) {
@@ -265,27 +269,55 @@ export function ArchiveOverlay({ onClose, onError }: ArchiveOverlayProps) {
               <div className="calendar-grid">
                 {days.map((day) => {
                   const count = recordsByDay.get(day)?.length ?? 0
+                  const tone = dayTone(day)
+                  const cycle = cycleForDay(day)
                   return (
-                    <button
-                      key={day}
-                      type="button"
-                      className={[
-                        'calendar-day',
-                        day.startsWith(`${monthCursor.year}-${pad(monthCursor.month)}`) ? '' : 'outside',
-                        day === selectedDay ? 'selected' : '',
-                        dayTone(day),
-                      ].filter(Boolean).join(' ')}
-                      onClick={() => setSelectedDay(day)}
-                    >
-                      <span>{dayNumber(day)}</span>
-                      {count > 0 && <small>{count}</small>}
-                    </button>
+                    <div key={day} className="calendar-cell">
+                      <button
+                        type="button"
+                        className={[
+                          'calendar-day',
+                          day.startsWith(`${monthCursor.year}-${pad(monthCursor.month)}`) ? '' : 'outside',
+                          day === selectedDay ? 'selected' : '',
+                          tone,
+                        ].filter(Boolean).join(' ')}
+                        onClick={() => setSelectedDay(day)}
+                        disabled={tone === 'future'}
+                        aria-label={`${day}${tone === 'future' ? '，未来日期' : ''}`}
+                      >
+                        <span>{dayNumber(day)}</span>
+                        {count > 0 && <small>{count}</small>}
+                        {tone === 'exported' && <span className="calendar-state-mark" aria-hidden="true">✓</span>}
+                        {tone === 'unexported' && <span className="calendar-fog" aria-hidden="true" />}
+                      </button>
+                      {tone === 'unexported' && cycle && (
+                        <button
+                          type="button"
+                          className="calendar-download"
+                          disabled={exportingId !== null}
+                          aria-label={`下载 ${day}`}
+                          title={`下载 ${day}`}
+                          onClick={() => void downloadCycle(cycle)}
+                        >
+                          {exportingId === cycle.id ? (
+                            <span className="download-progress" aria-hidden="true" />
+                          ) : (
+                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                              <path d="M12 3v12" />
+                              <path d="m7 10 5 5 5-5" />
+                              <path d="M5 21h14" />
+                            </svg>
+                          )}
+                        </button>
+                      )}
+                    </div>
                   )
                 })}
               </div>
               <div className="calendar-legend">
-                <span className="legend-exported">已导出</span>
-                <span className="legend-unexported">未导出</span>
+                <span className="legend-exported">已下载</span>
+                <span className="legend-unexported">待下载</span>
+                <span className="legend-future">未来</span>
               </div>
             </aside>
 
@@ -310,24 +342,6 @@ export function ArchiveOverlay({ onClose, onError }: ArchiveOverlayProps) {
                           {cycle?.exported_at ? '已导出' : '未导出'}
                         </span>
                       </div>
-                      <button
-                        type="button"
-                        className="download-btn"
-                        disabled={!cycle || rows.length === 0 || exportingId !== null}
-                        onClick={() => cycle && downloadCycle(cycle)}
-                        aria-label="下载"
-                        title={cycle?.exported_at ? '重新下载' : '下载并标记为已导出'}
-                      >
-                        {exportingId === cycle?.id ? (
-                          <span className="download-progress" aria-hidden="true" />
-                        ) : (
-                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                            <path d="M12 3v12" />
-                            <path d="m7 10 5 5 5-5" />
-                            <path d="M5 21h14" />
-                          </svg>
-                        )}
-                      </button>
                     </div>
                     <div className="archive-cycle-records">
                       <ol>
@@ -347,11 +361,6 @@ export function ArchiveOverlay({ onClose, onError }: ArchiveOverlayProps) {
                           </li>
                         ))}
                       </ol>
-                      {!cycle?.exported_at && (
-                        <div className="cycle-fog" aria-hidden="true">
-                          <span>待下载</span>
-                        </div>
-                      )}
                     </div>
                   </article>
                 ))

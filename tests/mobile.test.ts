@@ -84,6 +84,20 @@ describe('移动端适配要点', () => {
     expect(css).toMatch(/@media \(max-width: 700px\)[\s\S]{0,1200}?\.archive-layout \{[^}]*overflow-y:\s*auto/)
   })
 
+  it('数据库下载入口位于日期格，未下载黑雾、未来灰色、已下载绿色', () => {
+    expect(css).toMatch(/\.calendar-day\.unexported \{[\s\S]{0,180}?background:\s*#353a38/)
+    expect(css).toMatch(/\.calendar-day\.future \{[\s\S]{0,180}?background:\s*#eceeea/)
+    expect(css).toMatch(/\.calendar-day\.exported \{[\s\S]{0,180}?background:\s*#dfeee3/)
+    expect(css).toContain('.calendar-download {')
+    expect(css).not.toContain('.cycle-fog {')
+  })
+
+  it('呼吸练习包含环形总进度和三阶段进度轨迹', () => {
+    expect(css).toContain('.meditation-orbit {')
+    expect(css).toContain('.meditation-progress-track {')
+    expect(css).toContain('.meditation-phase-progress {')
+  })
+
   it('安全区使用 env(safe-area-inset)', () => {
     expect(css).toContain('env(safe-area-inset-top)')
     expect(css).toContain('env(safe-area-inset-bottom)')

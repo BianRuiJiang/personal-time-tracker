@@ -37,9 +37,14 @@ describe('冥想记录', () => {
     })
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(60_000)
+      await vi.advanceTimersByTimeAsync(30_000)
     })
+    expect(screen.getByRole('progressbar', { name: '本次冥想进度' }))
+      .toHaveAttribute('aria-valuenow', '50')
 
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30_000)
+    })
     expect(onFinish).toHaveBeenCalledWith(record, 'completed')
     expect(screen.getByText('完成一次呼吸')).toBeInTheDocument()
   })

@@ -855,6 +855,12 @@ h1, h2, h3, p, ol, li { margin: 0; padding: 0; }
   color: var(--ink-3);
 }
 
+.calendar-cell {
+  position: relative;
+  min-width: 0;
+  height: 42px;
+}
+
 .calendar-day {
   position: relative;
   display: flex;
@@ -872,10 +878,10 @@ h1, h2, h3, p, ol, li { margin: 0; padding: 0; }
   color: var(--ink);
   font-size: 13px;
   cursor: pointer;
-  transition: background .16s var(--ease), box-shadow .16s var(--ease), transform .16s var(--ease);
+  transition: box-shadow .16s var(--ease), transform .16s var(--ease);
 }
 
-.calendar-day span {
+.calendar-day > span:first-child {
   display: block;
   line-height: 1;
   font-variant-numeric: tabular-nums;
@@ -883,41 +889,123 @@ h1, h2, h3, p, ol, li { margin: 0; padding: 0; }
 
 .calendar-day small {
   position: absolute;
-  right: 6px;
+  left: 6px;
   bottom: 5px;
   line-height: 1;
   font-size: 10px;
   color: var(--ink-2);
 }
 
-.calendar-day:hover:not(.outside) { box-shadow: inset 0 0 0 1px var(--accent); }
-.calendar-day:active:not(.outside) { transform: scale(.97); }
+.calendar-day:hover:not(.outside):not(.future) { box-shadow: inset 0 0 0 1px var(--accent); }
+.calendar-day:active:not(.outside):not(.future) { transform: scale(.97); }
 .calendar-day:focus-visible { outline: 0; box-shadow: 0 0 0 3px rgba(100, 133, 107, .18); }
 .calendar-day.outside { opacity: 1; background: transparent; color: var(--ink-3); }
 .calendar-day.exported {
-  background: #e3efe6;
+  background: #dfeee3;
   color: var(--accent-deep);
-  box-shadow: inset 0 0 0 1px rgba(92, 126, 99, .18);
+  box-shadow: inset 0 0 0 1px rgba(92, 126, 99, .24);
 }
 .calendar-day.unexported {
-  background: #ffe9c7;
-  color: #7f541f;
-  box-shadow: inset 0 0 0 1px rgba(193, 139, 79, .3);
+  overflow: hidden;
+  background: #353a38;
+  color: #f4f6f3;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .12);
+}
+.calendar-day.unexported small {
+  z-index: 2;
+  color: rgba(255, 255, 255, .68);
+}
+.calendar-day.future {
+  background: #eceeea;
+  color: #a4aaa5;
+  cursor: not-allowed;
+}
+.calendar-day.future.outside {
+  background: transparent;
+  color: #c5cac5;
 }
 .calendar-day.selected {
   box-shadow: inset 0 0 0 2px var(--accent), 0 0 0 2px rgba(100, 133, 107, .12);
 }
 
+.calendar-state-mark {
+  position: absolute;
+  right: 5px;
+  bottom: 4px;
+  z-index: 2;
+  color: var(--accent-deep);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.calendar-fog {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: block !important;
+  background:
+    linear-gradient(125deg, rgba(255, 255, 255, .2), transparent 38%),
+    linear-gradient(315deg, rgba(0, 0, 0, .22), transparent 56%);
+  opacity: .8;
+  animation: calendar-fog-drift 4.8s ease-in-out infinite alternate;
+  pointer-events: none;
+}
+
+@keyframes calendar-fog-drift {
+  from { transform: translate3d(-2%, -1%, 0) scale(1.02); opacity: .66; }
+  to { transform: translate3d(2%, 1%, 0) scale(1.08); opacity: .9; }
+}
+
+.calendar-download {
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, .94);
+  color: #37413b;
+  box-shadow: 0 2px 7px rgba(0, 0, 0, .2);
+  cursor: pointer;
+}
+
+.calendar-download:hover:not(:disabled) {
+  background: #ffffff;
+  color: var(--accent-deep);
+  transform: translateY(-1px);
+}
+
+.calendar-download:disabled {
+  opacity: .62;
+  cursor: wait;
+}
+
+.calendar-download .download-progress {
+  width: 10px;
+  height: 10px;
+  border-width: 1.5px;
+  border-color: rgba(55, 65, 59, .24);
+  border-top-color: #37413b;
+}
+
 .calendar-legend {
   display: flex;
-  gap: 10px;
+  flex-wrap: wrap;
+  gap: 7px;
   margin-top: 14px;
-  font-size: 12px;
+  font-size: 11px;
 }
 
 .calendar-legend span { padding: 4px 8px; border-radius: 999px; }
-.legend-exported { background: #e3efe6; color: var(--accent-deep); }
-.legend-unexported { background: #ffe9c7; color: #7f541f; }
+.legend-exported { background: #dfeee3; color: var(--accent-deep); }
+.legend-unexported { background: #353a38; color: #f4f6f3; }
+.legend-future { background: #eceeea; color: #929993; }
 
 .archive-detail-head {
   position: sticky;
@@ -981,25 +1069,6 @@ h1, h2, h3, p, ol, li { margin: 0; padding: 0; }
 .cycle-badge.exported { background: rgba(100, 133, 107, .14); color: var(--accent-deep); }
 .cycle-badge.unexported { background: #f6d9aa; color: #75501f; }
 
-.download-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: none;
-  width: 32px;
-  height: 32px;
-  padding: 0;
-  border: 0;
-  border-radius: 8px;
-  background: var(--accent-strong);
-  color: #ffffff;
-  font-size: 13px;
-  cursor: pointer;
-}
-
-.download-btn:hover:not(:disabled) { background: var(--accent-deep); }
-.download-btn:disabled { opacity: .42; cursor: not-allowed; }
-
 .download-progress {
   width: 14px;
   height: 14px;
@@ -1011,34 +1080,6 @@ h1, h2, h3, p, ol, li { margin: 0; padding: 0; }
 
 @keyframes download-spin {
   to { transform: rotate(360deg); }
-}
-
-.archive-cycle-records {
-  position: relative;
-}
-
-.cycle-fog {
-  position: absolute;
-  inset: -4px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 7px;
-  background:
-    radial-gradient(circle at 20% 30%, rgba(255, 255, 255, .96), rgba(255, 255, 255, .56) 46%, transparent 74%),
-    radial-gradient(circle at 78% 74%, rgba(255, 255, 255, .92), rgba(255, 247, 232, .6) 46%, transparent 76%),
-    rgba(255, 247, 232, .68);
-  color: #8a6127;
-  pointer-events: none;
-}
-
-.cycle-fog span {
-  padding: 4px 9px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, .84);
-  font-size: 11px;
-  font-weight: 600;
-  box-shadow: 0 2px 8px rgba(138, 97, 39, .12);
 }
 
 .archive-cycle ol {
@@ -1276,12 +1317,15 @@ label { display: grid; gap: 6px; font-size: 13px; color: var(--ink-2); }
 
 /* ---------- 冥想遮罩 ---------- */
 .meditation-overlay {
-  --phase-bg: #f5f5f0;
-  --phase-wash: #f7f7f3;
-  --phase-accent: var(--accent-deep);
-  --phase-soft: var(--accent-soft);
-  --phase-border: rgba(100, 133, 107, .34);
-  --phase-glow: rgba(100, 133, 107, .14);
+  --phase-bg: #eef1eb;
+  --phase-bg-deep: #e5eae2;
+  --phase-ink: #26322b;
+  --phase-muted: #6f7b73;
+  --phase-accent: #56745d;
+  --phase-soft: rgba(238, 245, 238, .78);
+  --phase-border: rgba(86, 116, 93, .28);
+  --phase-glow: rgba(86, 116, 93, .16);
+  --phase-line: rgba(48, 54, 48, .12);
   position: fixed;
   inset: 0;
   z-index: 9;
@@ -1291,91 +1335,135 @@ label { display: grid; gap: 6px; font-size: 13px; color: var(--ink-2); }
   padding: 20px;
   overflow: hidden;
   background: var(--phase-bg);
-  transition: background-color 2.2s var(--ease);
+  color: var(--phase-ink);
+  transition: background-color 2.4s var(--ease), color 2.4s var(--ease);
 }
 
 .meditation-overlay.breath-0 {
-  --phase-bg: #e8f2f0;
-  --phase-wash: #f2f9f7;
-  --phase-accent: #3f7773;
-  --phase-soft: #cfe6e1;
-  --phase-border: rgba(63, 119, 115, .34);
-  --phase-glow: rgba(63, 119, 115, .18);
+  --phase-bg: #153432;
+  --phase-bg-deep: #0e2927;
+  --phase-ink: #f2faf7;
+  --phase-muted: rgba(224, 242, 236, .64);
+  --phase-accent: #a6d7ce;
+  --phase-soft: #d9eee9;
+  --phase-border: rgba(206, 239, 231, .44);
+  --phase-glow: rgba(138, 211, 197, .3);
+  --phase-line: rgba(216, 244, 236, .16);
 }
 
 .meditation-overlay.breath-1 {
-  --phase-bg: #eaf1e7;
-  --phase-wash: #f5f8f2;
-  --phase-accent: #526f57;
-  --phase-soft: #dbe8d7;
-  --phase-border: rgba(82, 111, 87, .32);
-  --phase-glow: rgba(82, 111, 87, .17);
+  --phase-bg: #273b2d;
+  --phase-bg-deep: #1c3023;
+  --phase-ink: #f2f7ef;
+  --phase-muted: rgba(229, 239, 225, .63);
+  --phase-accent: #bad6b5;
+  --phase-soft: #deeadb;
+  --phase-border: rgba(216, 237, 211, .42);
+  --phase-glow: rgba(164, 207, 157, .26);
+  --phase-line: rgba(225, 241, 219, .15);
 }
 
 .meditation-overlay.breath-2 {
-  --phase-bg: #e7edf4;
-  --phase-wash: #f3f6f9;
-  --phase-accent: #567590;
-  --phase-soft: #d9e5ef;
-  --phase-border: rgba(86, 117, 144, .3);
-  --phase-glow: rgba(86, 117, 144, .16);
+  --phase-bg: #213545;
+  --phase-bg-deep: #172b3b;
+  --phase-ink: #f2f7fb;
+  --phase-muted: rgba(223, 235, 246, .62);
+  --phase-accent: #b4d1e8;
+  --phase-soft: #dce9f3;
+  --phase-border: rgba(210, 231, 247, .4);
+  --phase-glow: rgba(145, 188, 220, .26);
+  --phase-line: rgba(218, 235, 249, .15);
+}
+
+.meditation-live-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+}
+
+.meditation-live-backdrop > span {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  transition: opacity 2.4s var(--ease);
+}
+
+.meditation-live-backdrop > span:nth-child(1) { background: #163b39; }
+.meditation-live-backdrop > span:nth-child(2) { background: #263b2a; }
+.meditation-live-backdrop > span:nth-child(3) { background: #24384a; }
+.meditation-live-backdrop > span.is-active { opacity: 1; }
+
+.meditation-overlay.breath-0,
+.meditation-overlay.breath-1,
+.meditation-overlay.breath-2 {
+  background: #1d3431;
 }
 
 .meditation-atmosphere {
   position: absolute;
   inset: 0;
-  background: var(--phase-wash);
-  opacity: .34;
-  transition: background-color 2.2s var(--ease);
+  z-index: 2;
+  background: linear-gradient(145deg, rgba(255, 255, 255, .1), transparent 46%);
+  opacity: .42;
   pointer-events: none;
 }
 
 .meditation-panel {
   position: relative;
-  width: min(100%, 340px);
+  z-index: 3;
+  width: min(100%, 390px);
   display: grid;
-  gap: 16px;
-  padding: 26px 24px 20px;
-  border: 1px solid rgba(255, 255, 255, .82);
-  border-radius: 12px;
-  background: rgba(255, 255, 255, .9);
-  box-shadow: 0 20px 54px rgba(48, 54, 48, .11);
+  gap: 18px;
+  padding: 30px 28px 22px;
+  border: 1px solid rgba(255, 255, 255, .68);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, .92);
+  box-shadow: 0 28px 80px rgba(28, 39, 32, .14), 0 1px 0 rgba(255, 255, 255, .9) inset;
   text-align: center;
 }
 
 .meditation-title {
   display: grid;
-  gap: 5px;
+  gap: 7px;
 }
 
 .meditation-title > span {
   color: var(--accent);
   font-size: 11px;
-  font-weight: 650;
+  font-weight: 700;
+  text-transform: uppercase;
 }
 
 .meditation-panel h2 {
-  font-size: 22px;
-  font-weight: 700;
+  color: var(--ink);
+  font-size: 28px;
+  font-weight: 650;
+  line-height: 1.2;
 }
 
 .meditation-rhythm {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 6px;
+  gap: 0;
+  padding: 12px 0;
+  border-top: 1px solid var(--hairline);
+  border-bottom: 1px solid var(--hairline);
 }
 
 .meditation-rhythm > span {
   display: grid;
-  gap: 3px;
-  padding: 9px 6px;
-  border-radius: 8px;
-  background: var(--fill);
+  gap: 5px;
+  padding: 2px 8px;
+}
+
+.meditation-rhythm > span + span {
+  border-left: 1px solid var(--hairline);
 }
 
 .meditation-rhythm strong {
   color: var(--ink);
-  font-size: 17px;
+  font-size: 21px;
+  font-weight: 550;
   font-variant-numeric: tabular-nums;
 }
 
@@ -1389,9 +1477,7 @@ label { display: grid; gap: 6px; font-size: 13px; color: var(--ink-2); }
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 12px 13px;
-  border-radius: 9px;
-  background: var(--fill);
+  padding: 2px 0 0;
   color: var(--ink-2);
   font-size: 13px;
 }
@@ -1403,15 +1489,15 @@ label { display: grid; gap: 6px; font-size: 13px; color: var(--ink-2); }
 }
 
 .meditation-duration-input input {
-  width: 58px;
-  height: 34px;
-  padding: 0 8px;
-  border: 1px solid transparent;
-  border-radius: 7px;
+  width: 62px;
+  height: 40px;
+  padding: 0 10px;
+  border: 1px solid var(--hairline);
+  border-radius: 8px;
   background: var(--surface);
   color: var(--accent-deep);
-  font-size: 18px;
-  font-weight: 650;
+  font-size: 20px;
+  font-weight: 600;
   text-align: center;
   font-variant-numeric: tabular-nums;
 }
@@ -1431,7 +1517,7 @@ label { display: grid; gap: 6px; font-size: 13px; color: var(--ink-2); }
 .meditation-options {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 6px;
+  gap: 7px;
 }
 
 .meditation-options button,
@@ -1448,19 +1534,21 @@ label { display: grid; gap: 6px; font-size: 13px; color: var(--ink-2); }
   font-weight: 500;
   cursor: pointer;
   transition: background .16s var(--ease), color .16s var(--ease),
-              transform .2s var(--ease);
+              transform .2s var(--ease), border-color .16s var(--ease);
 }
 
 .meditation-options button {
   height: 36px;
   padding: 0 6px;
+  border: 1px solid transparent;
+  background: #f3f5f0;
   font-size: 12px;
 }
 
 .meditation-options button.is-selected {
   background: var(--accent-soft);
   color: var(--accent-deep);
-  box-shadow: inset 0 0 0 1px rgba(100, 133, 107, .2);
+  border-color: rgba(100, 133, 107, .18);
 }
 
 .meditation-options button:hover,
@@ -1484,56 +1572,110 @@ label { display: grid; gap: 6px; font-size: 13px; color: var(--ink-2); }
 .meditation-close:hover { background: transparent; color: var(--accent); }
 
 .meditation-start {
-  height: 46px;
+  height: 50px;
   border: 0;
-  border-radius: 9px;
+  border-radius: 8px;
+  background: #4f6e57;
   font-size: 15px;
   font-weight: 600;
+  box-shadow: 0 12px 28px rgba(79, 110, 87, .22);
 }
 
 .meditation-session {
   position: relative;
-  z-index: 1;
+  z-index: 3;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 22px;
+  width: min(100%, 520px);
+  gap: 18px;
 }
 
 .meditation-phase-copy {
   display: grid;
-  gap: 4px;
+  gap: 5px;
   text-align: center;
 }
 
 .meditation-phase-copy span {
   color: var(--phase-accent);
-  font-size: 19px;
-  font-weight: 700;
-  transition: color 2.2s var(--ease);
+  font-size: 30px;
+  font-weight: 550;
+  line-height: 1.1;
+  transition: color 2.4s var(--ease);
 }
 
 .meditation-phase-copy small {
-  color: var(--ink-2);
+  color: var(--phase-muted);
   font-size: 12px;
+  transition: color 2.4s var(--ease);
+}
+
+.meditation-orb {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: min(310px, 72vw);
+  aspect-ratio: 1;
+}
+
+.meditation-orbit {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  transform: rotate(-90deg);
+}
+
+.meditation-orbit circle {
+  fill: none;
+  stroke-width: 2;
+}
+
+.meditation-orbit-track {
+  stroke: var(--phase-line);
+  transition: stroke 2.4s var(--ease);
+}
+
+.meditation-orbit-value {
+  stroke: var(--phase-accent);
+  stroke-linecap: round;
+  filter: drop-shadow(0 0 6px var(--phase-glow));
+  transition: stroke-dashoffset .8s linear, stroke 2.4s var(--ease);
 }
 
 .meditation-breath-circle {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  width: min(240px, 56vw);
-  height: min(240px, 56vw);
+  gap: 7px;
+  width: 74%;
+  height: 74%;
   border-radius: 50%;
   background: var(--phase-soft);
-  border: 2px solid var(--phase-border);
-  box-shadow: 0 0 0 14px var(--phase-glow), 0 18px 48px var(--phase-glow);
-  color: var(--phase-accent);
+  border: 1px solid var(--phase-border);
+  box-shadow:
+    0 0 0 14px rgba(255, 255, 255, .035),
+    0 26px 72px var(--phase-glow),
+    0 1px 0 rgba(255, 255, 255, .76) inset;
+  color: #253b36;
+  will-change: transform;
+  transition: background-color 2.4s var(--ease), border-color 2.4s var(--ease),
+              box-shadow 2.4s var(--ease);
+}
+
+.meditation-breath-circle span {
   font-size: 18px;
   font-weight: 600;
-  will-change: transform;
-  transition: background-color 2.2s var(--ease), border-color 2.2s var(--ease),
-              color 2.2s var(--ease), box-shadow 2.2s var(--ease);
+}
+
+.meditation-breath-circle small {
+  color: rgba(37, 59, 54, .58);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
 }
 
 /* 呼吸圆环跟随三个阶段缩放：吸气展开、停留稳定、呼气收拢。 */
@@ -1567,11 +1709,111 @@ label { display: grid; gap: 6px; font-size: 13px; color: var(--ink-2); }
 }
 
 .meditation-countdown {
+  color: var(--phase-ink);
+  font-size: 43px;
+  font-weight: 450;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  transition: color 2.4s var(--ease);
+}
+
+.meditation-progress {
+  display: grid;
+  gap: 9px;
+  width: min(360px, 84vw);
+}
+
+.meditation-progress-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--phase-muted);
+  font-size: 11px;
+}
+
+.meditation-progress-head strong {
   color: var(--phase-accent);
-  font-size: 30px;
+  font-size: 12px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
-  transition: color 2.2s var(--ease);
+}
+
+.meditation-progress-track {
+  position: relative;
+  height: 3px;
+  border-radius: 999px;
+  background: var(--phase-line);
+}
+
+.meditation-progress-track > span {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: inherit;
+  background: var(--phase-accent);
+  box-shadow: 0 0 12px var(--phase-glow);
+  transition: width .8s linear, background-color 2.4s var(--ease);
+}
+
+.meditation-progress-track > i {
+  position: absolute;
+  top: 50%;
+  width: 7px;
+  height: 7px;
+  border: 2px solid var(--phase-ink);
+  border-radius: 50%;
+  background: var(--phase-accent);
+  box-shadow: 0 0 10px var(--phase-glow);
+  transform: translate(-50%, -50%);
+  transition: left .8s linear, border-color 2.4s var(--ease), background-color 2.4s var(--ease);
+}
+
+.meditation-phase-progress {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.meditation-phase-progress > span {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.meditation-phase-progress em {
+  color: var(--phase-muted);
+  font-size: 10px;
+  font-style: normal;
+  text-align: left;
+  transition: color .4s var(--ease);
+}
+
+.meditation-phase-progress > span > i {
+  display: block;
+  height: 2px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--phase-line);
+}
+
+.meditation-phase-progress b {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--phase-accent);
+  opacity: .34;
+  transition: width .8s linear, opacity .4s var(--ease);
+}
+
+.meditation-phase-progress > span.is-active em {
+  color: var(--phase-accent);
+}
+
+.meditation-phase-progress > span.is-active b {
+  opacity: 1;
+}
+
+.meditation-phase-progress > span.is-done b {
+  opacity: .72;
 }
 
 .meditation-controls {
@@ -1580,18 +1822,29 @@ label { display: grid; gap: 6px; font-size: 13px; color: var(--ink-2); }
   gap: 10px;
 }
 
+.meditation-controls button {
+  background: rgba(255, 255, 255, .08);
+  color: var(--phase-ink);
+  transition: background .18s var(--ease), color .18s var(--ease), transform .2s var(--ease);
+}
+
+.meditation-controls button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, .15);
+  color: var(--phase-ink);
+}
+
 .meditation-controls button:disabled {
   opacity: .55;
   cursor: wait;
 }
 
 .meditation-controls .meditation-cancel {
-  color: var(--danger);
+  color: #e7b0a9;
 }
 
 .meditation-controls .meditation-cancel:hover:not(:disabled) {
-  background: rgba(184, 92, 86, .1);
-  color: var(--danger);
+  background: rgba(184, 92, 86, .17);
+  color: #ffd2cd;
 }
 
 .meditation-error {
@@ -1650,8 +1903,12 @@ label { display: grid; gap: 6px; font-size: 13px; color: var(--ink-2); }
 
 @media (max-width: 480px) {
   .meditation-overlay { padding: 16px; }
-  .meditation-panel { padding: 24px 18px 18px; }
+  .meditation-panel { padding: 26px 18px 18px; }
   .meditation-options { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .meditation-session { gap: 14px; }
+  .meditation-phase-copy span { font-size: 25px; }
+  .meditation-orb { width: min(280px, 76vw); }
+  .meditation-countdown { font-size: 34px; }
   .meditation-controls { flex-wrap: wrap; justify-content: center; }
   .meditation-controls button { flex: 1 1 96px; }
 }
